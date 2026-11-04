@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from scipy.special import erf
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 import warnings
@@ -14,9 +15,11 @@ import pyarrow.parquet as pq
 import pyarrow.compute as pc
 from tqdm import tqdm
 
+plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
+
 ALPHA = 1
-TIME_THRESHOLD = 17
-HIT_THRESHOLD = 12
+TIME_THRESHOLD = 14
+HIT_THRESHOLD = 10
 
 BINS = 100
 EMPTY_CHANNELS = [0, 63, 64, 127, 128, 191, 192, 256]
@@ -25,9 +28,13 @@ NOISE_THRESHOLD = 10
 CHMIN = 80
 CHMAX = 110
 
-PLOTCHANNEL = 1
+PLOTCHANNEL = 0
 CH1 = 96
 CH2 = 97
+CH1CENTER = 6.785
+CH2CENTER = 6.845
+
+PITCH = 0.055
 
 def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = False) -> pd.DataFrame:
     if (cache is not None and cache.exists() and not rebuild
@@ -92,6 +99,11 @@ def gaussian(x, a, mean, stdev):
 
 def base_gaussian(x, baseline, a, mean, stdev):
     return a * np.exp(-(x-mean)**2/(2*stdev**2)) + baseline
+
+
+def box_gaussian(x, A, x0, w, sigma, c):
+    s = np.sqrt(2) * sigma
+    return 0.5 * A * (erf((x - x0 + w/2) / s) - erf((x - x0 - w/2) / s)) + c
 
 
 def polynomial(x, a, b, c):
@@ -192,11 +204,11 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path) -> tuple[float, float]:
             warnings.simplefilter("error", RuntimeWarning)
             warnings.simplefilter("error", OptimizeWarning)
             popt, pcov = curve_fit(gaussian, centers, counts_neg, p0=p0)
-            if abs(popt[0]) < counts_neg.max() / 2:
-                raise ValueError("Fit amplitude too low!")
-            elif abs(popt[1] - t[argmax]) > 10:
-                raise ValueError("Fit mean not centered!")
-            elif abs(popt[2] < 5):
+            # if abs(popt[0]) < counts_neg.max() / 2:
+            #     raise ValueError("Fit amplitude too low!")
+            # elif abs(popt[1] - t[argmax]) > 10:
+            #     raise ValueError("Fit mean not centered!")
+            if abs(popt[2] < 5):
                 popt[2] = 5.0
     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
         tqdm.write(f"Fit failed with {err}")
@@ -208,11 +220,11 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path) -> tuple[float, float]:
     xl = np.linspace(popt[1] - 2 * popt[2], popt[1] + 2 * popt[2], 1000)
     ax.plot(
         xl, -gaussian(xl, *popt), 
-        label=f"Fit: ${popt[0]:.2f} * exp(-(x-{popt[1]:.2f})^2/(2*{popt[2]:.2f}^2))$")
+        label=f"Fit: $\mu$ = {popt[1]:.2f} ns, $\sigma$ = {popt[2]:.2f} ns")
     ax.set_xlabel("Time [ns]")
     ax.set_ylabel("# Hits")
     ax.legend()
-    ax.set_title(f"{TIME_THRESHOLD} hit threshold, {df["voltage"].iloc[0]} V")
+    ax.set_title(f"{TIME_THRESHOLD} ADC hit threshold, {df["voltage"].iloc[0]} V")
     fig.savefig(plotdir / f"signal_in_time.png", dpi=150)
     return (popt[1], popt[2])
 
@@ -319,6 +331,8 @@ def main(args: list[str] | None = None):
         del df_all
 
         for df in data:
+            if df["z"].iloc[0] < 32.5 or df["z"].iloc[0] > 100:
+                continue
             df_id += 1
             progress_bar.update(1)
             df["noise"] = df.groupby("channel")["adc"].transform("std")
@@ -502,6 +516,7 @@ def main(args: list[str] | None = None):
     eta_means = {}
     for z, zf in ch_adc.items():
         fit_sigma = {}
+        fit_popt = {}
         mean_adcs = {z: {ch1: [], ch2: []}}
         for ch_id, ch_df in zf.items():
             # Plot mean signal vs x [mm]
@@ -515,20 +530,33 @@ def main(args: list[str] | None = None):
             mean_adc = np.abs(mean_adc)
             argmax = np.argmax(mean_adc) # SIGNAL IS ABS SO MAX
             peak = mean_adc[argmax]
-            base = np.median(mean_adc)
-            p0 = [base, peak - base, x[argmax], (x.max() - x.min()) / 10]
+            base = 0 # Assume 0 baseline
+            above = x[mean_adc > base + peak/2]
+            w = above.max() - above.min() if above.size > 1 else PITCH / 2
+            p0 = [peak - base, x[argmax], w, max(w/10, np.diff(x).min()), base]
+            lo = [0, x.min(), 0, 1e-4, -np.inf]
+            hi = [np.inf, x.max(), np.ptp(x), np.ptp(x), np.inf]
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", RuntimeWarning)
                     warnings.simplefilter("error", OptimizeWarning)
-                    popt, pcov = curve_fit(base_gaussian, x, mean_adc, p0=p0)
+                    popt, pcov = curve_fit(
+                        box_gaussian, x, mean_adc, 
+                        p0=p0, bounds=(lo, hi), maxfev=10000)
                     fit_sigma[ch_id] = abs(popt[3])
+                    fit_popt[ch_id] = popt
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit failed with {err}")
                 continue
         for i, ch in enumerate([ch1, ch2]):
             for l in mean_adcs[z][ch]:
-                ax_adc.plot(x, l, color=f"C{i}", label=f"ch {ch}")
+                ax_adc.plot(x, l, color=f"C{i}", label=f"Ch {ch}")
+                if ch in fit_popt:
+                    popt = fit_popt[ch]
+                    xf = np.linspace(x.min(), x.max(), 500)
+                    sign = np.sign(np.sum(list(l)))
+                    ax_adc.plot(xf, sign * box_gaussian(xf, *popt), "--", color=f"C{i}",
+                                label=fr"Fit: $w$={popt[2]*1e3:.1f} µm, $\sigma$={popt[3]*1e3:.1f} µm")
         # Avoid cases where one channel had a bad fit
         if len(fit_sigma) == 2:
             zs.append(z)
@@ -541,15 +569,16 @@ def main(args: list[str] | None = None):
     q1 = np.array([eta_means[ch1][k] for k in x_eta])
     q2 = np.array([eta_means[ch2][k] for k in x_eta])
     Q = q1 + q2
-    ax_eta.plot(x_eta, 100 * q1 / Q, 'o-', ms=3, color="C0", label=f"ch {ch1}")
-    ax_eta.plot(x_eta, 100 * q2 / Q, 'o-', ms=3, color="C1", label=f"ch {ch2}")
-    # ax_eta.axvline(6.80, color="k", ls="--", lw=1, label="ch 96 center")
-    # ax_eta.axvline(6.855, color="k", ls="--", lw=1, label="ch 97 center")
+    ax_eta.plot(x_eta, 100 * q1 / Q, 'o-', ms=3, color="C0", label=f"Ch {ch1}")
+    ax_eta.plot(x_eta, 100 * q2 / Q, 'o-', ms=3, color="C1", label=f"Ch {ch2}")
+    ax_eta.axvline(CH1CENTER, color="C0", ls="--", lw=1, label="Ch 96 rough center")
+    ax_eta.axvline(CH2CENTER, color="C1", ls="--", lw=1, label="Ch 97 rough center")
     ax_eta.legend()
     ax_eta.set_title(f"{voltage} V")
     ax_eta.set_xlabel("Position in x [mm]")
     ax_eta.set_ylabel("Charge [%]")
     ax_eta.set_ylim(0,100)
+    ax_eta.set_xlim(CH1CENTER - PITCH, CH2CENTER + PITCH)
     fig_eta.savefig(plotdir / "eta_scan.png", dpi=150)
     
     for ch in [ch1,ch2]:
@@ -565,7 +594,7 @@ def main(args: list[str] | None = None):
                            color=color, label=f"2nd order poly with min at {zmin:.3f} mm")
         except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
             print(f"Fit of sigmas failed with {err}")
-        ax_zs.plot(zs, 1000 * np.array(sigmas[ch]), 'o', color=color, label=f"ch {ch}")
+        ax_zs.plot(zs, 1000 * np.array(sigmas[ch]), 'o', color=color, label=f"Ch {ch}")
     ax_zs.legend()
     ax_zs.set_title(f"{voltage} V")
     ax_zs.set_xlabel("Position in z [mm]")
@@ -573,10 +602,11 @@ def main(args: list[str] | None = None):
     fig_zs.savefig(plotdir / "focus_scan.png", dpi=150)
 
     ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())    
-    #ax_adc.legend()
+    # ax_adc.legend()
     ax_adc.set_title(f"{voltage} V")
     ax_adc.set_xlabel("Position in x [mm]")
     ax_adc.set_ylabel("Mean ADC")
+    ax_adc.set_xlim(CH1CENTER - 0.1, CH2CENTER + 0.1)
     fig_adc.savefig(plotdir / "two_channels_mean_adc.png", dpi=150)
 
     # Cluster sizes
@@ -606,7 +636,7 @@ def main(args: list[str] | None = None):
     ax_avg_hits.set_xlabel("Position in x [mm]")
     ax_avg_hits.set_ylabel("Hit average [channel]")
     ax_avg_hits.grid(True)
-    ax_avg_hits.legend(ncols=3, fontsize="small")
+    # ax_avg_hits.legend(ncols=3, fontsize="small")
     fig_avg_hits.savefig(plotdir / "avg_hits.png", dpi=150)
 
     # Hits in specified channels
