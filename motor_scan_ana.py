@@ -18,7 +18,7 @@ from tqdm import tqdm
 plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
 
 ALPHA = 1
-TIME_THRESHOLD = 14
+TIME_THRESHOLD = 10
 HIT_THRESHOLD = 10
 
 BINS = 100
@@ -317,6 +317,9 @@ def main(args: list[str] | None = None):
         if delay != None:
             break
 
+    delay = 50
+    sigma_t = 5
+
     # Loop through the data
     progress_bar = tqdm(
         total=len(paths),
@@ -331,8 +334,8 @@ def main(args: list[str] | None = None):
         del df_all
 
         for df in data:
-            if df["z"].iloc[0] < 32.5 or df["z"].iloc[0] > 100:
-                continue
+            # if df["z"].iloc[0] < 32.5 or df["z"].iloc[0] > 100:
+            #     continue
             df_id += 1
             progress_bar.update(1)
             df["noise"] = df.groupby("channel")["adc"].transform("std")
@@ -454,7 +457,7 @@ def main(args: list[str] | None = None):
 
             # Plot adcs individually
             # and abs(z - 31.2) < 0.05
-            if count_plots < 1:
+            if count_plots < 100:
                 fig, ax = plt.subplots(1,1)
                 df = df.sort_values(["run", "channel"], ascending=[True,True])
                 ax.errorbar(

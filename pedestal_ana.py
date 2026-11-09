@@ -15,7 +15,7 @@ fig, ax = plt.subplots(1,1)
 
 ax.plot(df["channel"], df["pedestals"], '-o', ms=2)
 
-plt.show()
+fig.savefig("test.png", dpi=150)
 
 
 # FOR to_csv_adc
