@@ -18,8 +18,8 @@ from tqdm import tqdm
 plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
 
 ALPHA = 1
-TIME_THRESHOLD = 14
-HIT_THRESHOLD = 10
+TIME_THRESHOLD = 22
+HIT_THRESHOLD = 22
 
 BINS = 100
 EMPTY_CHANNELS = [0, 63, 64, 127, 128, 191, 192, 256]
@@ -44,6 +44,15 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
             cache,
             dtype_backend="pyarrow")
 
+    def unify_channel(t):
+        idx = t.schema.get_field_index("channel")
+        if idx < 0 or t.schema.field("channel").type == pa.int64():
+            return t
+        col = t["channel"]
+        if pa.types.is_floating(col.type):
+            col = pc.if_else(pc.is_nan(col), None, col)
+        return t.set_column(idx, "channel", col.cast(pa.int64()))
+
     # We need pyarrow for these large datasets in pandas
     # When we have like 500+ files I think
     tables = []
@@ -58,6 +67,7 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
         # df = pd.read_csv(path, header=1)
         tables.append(pa.Table.from_pandas(df, preserve_index=False))
         del df
+    tables = [unify_channel(t) for t in tables] # if columns have diff types
     table = pa.concat_tables(tables, promote_options="default")
     del tables
 
@@ -259,7 +269,7 @@ def main(args: list[str] | None = None):
     # Parse arguments
     args = parser.parse_args(args)
     path_pedestals = args.pedestal
-    plotdir = args.plots
+    plotdir = isdir(args.plots)
 
     # Build caches in chunks to not overload pc in memory
     # Allows to handle very large datasets
@@ -341,7 +351,7 @@ def main(args: list[str] | None = None):
             bias = df["voltage"].iloc[0]
             if bias not in voltages:
                 voltages.append(bias)
-            biasdir = isdir(plotdir + f"/{bias}_volts")
+            biasdir = isdir(plotdir / f"{bias}_volts")
             subdir = isdir(biasdir / "adcs")
             df_id += 1
             progress_bar.update(1)
@@ -519,7 +529,7 @@ def main(args: list[str] | None = None):
     print("Saving plots...")
 
     for voltage in voltages:
-        biasdir = isdir(plotdir + f"/{voltage}_volts")
+        biasdir = isdir(plotdir / f"{voltage}_volts")
         # Mean signal over two select channels
         fig_adc, ax_adc = plt.subplots(1,1)
         fig_zs, ax_zs = plt.subplots(1,1)
