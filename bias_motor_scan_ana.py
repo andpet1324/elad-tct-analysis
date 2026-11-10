@@ -513,13 +513,10 @@ def main(args: list[str] | None = None):
             # clusters.setdefault(z, {})[x] = all_sizes.mean()
 
             # Mean hits for select channels, in x,z grid
-            mean_channel_hits.setdefault(bias, {z: {}})[x] = np.average(hits.index, weights=hits.values)
+            mean_channel_hits.setdefault(bias, {}).setdefault(z, {})[x] = np.average(hits.index, weights=hits.values)
 
             # Count hits in certain channels, normalized by amount of hits
-            if bias not in ch_counts:
-                ch_counts.setdefault(bias, {z :{ch1: [], ch2: []}})
-            if z not in ch_counts:
-                ch_counts[bias].setdefault(z, {ch1: [], ch2: []})
+            ch_counts.setdefault(bias, {}).setdefault(z, {ch1: [], ch2: []})
             ch_counts[bias][z][ch1].append(hits.get(ch1, 0) / hits.size)
             ch_counts[bias][z][ch2].append(hits.get(ch2, 0) / hits.size)
                     
@@ -614,6 +611,11 @@ def main(args: list[str] | None = None):
                     coefs, cov = np.polyfit(zs, sigmas[ch], 2, cov=True)
                     x = np.linspace(min(zs), max(zs), 100)
                     zmin = -coefs[1] / (2 * coefs[0])
+                    if coefs[0] > 0 and min(zs) <= zmin <= max(zs):
+                        a, b = coefs[0], coefs[1]
+                        grad = np.array([b / (2 * a**2), -1 / (2 * a)])
+                        zerr = float(np.sqrt(grad @ cov[:2, :2] @ grad))
+                        focuses.setdefault(ch, {})[voltage] = (zmin, zerr)
                     ax_zs.plot(x, 1000 * np.polyval(coefs, x), 
                             color=color, label=f"2nd order poly with min at {zmin:.3f} mm")
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
@@ -675,6 +677,22 @@ def main(args: list[str] | None = None):
         ax_hc.set_xlabel(f"# Hits in ch {ch1}")
         ax_hc.set_ylabel(f"# Hits in ch {ch2}")
         fig_hc.savefig(biasdir / "hits_channels.png", dpi=150)
+
+    fig_f, ax_f = plt.subplots(1,1)
+    for i, ch in enumerate([ch1, ch2]):
+        pts = sorted(focuses.get(ch, {}).items())
+        if not pts:
+            continue
+        vs = [float(v) for v, _ in pts]
+        zm = [p[0] for _, p in pts]
+        ze = [p[1] for _, p in pts]
+        ax_f.errorbar(vs, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
+                      color=f"C{i}", label=f"Ch {ch}")
+    ax_f.set_xlabel("Bias voltage [V]")
+    ax_f.set_ylabel("Best focus z [mm]")
+    ax_f.grid(True)
+    ax_f.legend()
+    fig_f.savefig(plotdir / "focus_vs_voltage.png", dpi=150)
 
 
 if __name__ == "__main__":
