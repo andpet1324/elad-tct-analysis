@@ -345,8 +345,8 @@ def main(args: list[str] | None = None):
         del df_all
 
         for df in data:
-            if df["z"].iloc[0] < 32.5 or df["z"].iloc[0] > 100:
-                continue
+            # if df["z"].iloc[0] < 32.5 or df["z"].iloc[0] > 100:
+            #     continue
             # Get the bias
             bias = df["voltage"].iloc[0]
             if bias not in voltages:
@@ -527,6 +527,8 @@ def main(args: list[str] | None = None):
 
     del(progress_bar)
     print("Saving plots...")
+
+    focuses = {}
 
     for voltage in voltages:
         biasdir = isdir(plotdir / f"{voltage}_volts")
