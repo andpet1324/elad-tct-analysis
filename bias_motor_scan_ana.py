@@ -216,10 +216,10 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path) -> tuple[float, float]:
             warnings.simplefilter("error", RuntimeWarning)
             warnings.simplefilter("error", OptimizeWarning)
             popt, pcov = curve_fit(gaussian, centers, counts_neg, p0=p0)
-            # if abs(popt[0]) < counts_neg.max() / 2:
-            #     raise ValueError("Fit amplitude too low!")
-            # elif abs(popt[1] - t[argmax]) > 10:
-            #     raise ValueError("Fit mean not centered!")
+            if abs(popt[0]) < counts_neg.max() / 2:
+                raise ValueError("Fit amplitude too low!")
+            elif abs(popt[1] - t[argmax]) > 10:
+                raise ValueError("Fit mean not centered!")
             if abs(popt[2] < 5):
                 popt[2] = 5.0
     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
@@ -610,7 +610,13 @@ def main(args: list[str] | None = None):
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", RuntimeWarning)
                     warnings.simplefilter("error", OptimizeWarning)
-                    coefs, cov = np.polyfit(zs, sigmas[ch], 2, cov=True)
+                    zs = np.asarray(zs)
+                    sig = np.asarray(sigmas[ch])
+                    coefs, cov = np.polyfit(zs, sig[ch], 2, cov=True)
+                    residuals = sig[ch] - np.polyval(coefs, zs)
+                    mad = np.median(np.abs(residuals - np.median(residuals)))
+                    mask = np.abs(residuals) < 3 * 1.4826 * mad
+                    coefs, cov = np.polyfit(zs[mask], sig[ch][mask], 2, cov=True)
                     x = np.linspace(min(zs), max(zs), 100)
                     zmin = -coefs[1] / (2 * coefs[0])
                     sigmamin = np.polyval(coefs, zmin)
@@ -645,24 +651,36 @@ def main(args: list[str] | None = None):
         ax_avg_hits.grid(True)
         fig_avg_hits.savefig(biasdir / "avg_hits.png", dpi=150)
 
-    fig_f, ax_f = plt.subplots(1,1)
-    for i, ch in enumerate([ch1, ch2]):
+    fig_f, ax_f = plt.subplots(2,1, sharex=True)
+
+    for i, ch in enumerate([ch1]):
         pts = sorted(focuses.get(ch, {}).items())
         if not pts:
             continue
-        volts = [float(v) for v, _ in pts]
-        zm = [p[0] for _, p in pts]
-        ze = [p[1] for _, p in pts]
-        sm = [p[2] for _, p in pts]
-        se = [p[3] for _, p in pts]
-        ax_f.errorbar(volts, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
-                      color=f"C{i}", label=f"zmin")
-        ax_f.errorbar(volts, sm, yerr=se, fmt='o-', ms=4, capsize=3,
-                color=f"C{i+1}", label=f"zmin")
-    ax_f.set_xlabel("Bias voltage [V]")
-    ax_f.set_ylabel("Best focus z [mm]")
-    ax_f.grid(True)
-    ax_f.legend()
+        volts = np.array([float(v) for v, _ in pts])
+        zm = np.array([p[0] for _, p in pts])
+        ze = np.array([p[1] for _, p in pts])
+        sm = np.array([p[2] for _, p in pts])
+        se = np.array([p[3] for _, p in pts])
+
+        ax_f[0].errorbar(
+            volts, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
+            color=f"C{i}", label=rf"$z_{{\mathrm{{min}}}}$"
+        )
+        ax_f[1].errorbar(
+            volts, 1000 * sm, yerr=1000 * se, fmt='o-', ms=4, capsize=3,
+            color=f"C{i}", label=rf"$\sigma_{{\mathrm{{min}}}}$"
+        )
+    ax_f[0].set_title(f"Ch {ch1}")
+    ax_f[0].set_ylabel("Min focus z [mm]")
+    ax_f[1].set_ylabel(r"Min focus $\sigma$ [µm]")
+    ax_f[1].set_xlabel("Bias voltage [V]")
+
+    ax_f[0].grid(True)
+    ax_f[0].legend()
+    ax_f[1].grid(True)
+    ax_f[1].legend()
+
     fig_f.savefig(plotdir / "focus_vs_voltage.png", dpi=150)
 
 

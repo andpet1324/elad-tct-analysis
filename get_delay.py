@@ -34,12 +34,14 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path, TIME_THRESHOLD: float) ->
             warnings.simplefilter("error", RuntimeWarning)
             warnings.simplefilter("error", OptimizeWarning)
             popt, pcov = curve_fit(gaussian, centers, counts_neg, p0=p0)
-            # if abs(popt[0]) < counts_neg.max() / 2:
-            #     raise ValueError("Fit amplitude too low!")
-            # elif abs(popt[1] - t[argmax]) > 10:
-            #     raise ValueError("Fit mean not centered!")
+            if abs(popt[0]) < counts_neg.max() / 2:
+                raise ValueError("Fit amplitude too low!")
+            elif abs(popt[1] - t[argmax]) > 10:
+                raise ValueError("Fit mean not centered!")
             if abs(popt[2] < 5):
                 popt[2] = 5.0
+            if abs(popt[2] > 15):
+                popt[2] = 15.0
     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
         tqdm.write(f"Fit failed with {err}")
         return (None, None)

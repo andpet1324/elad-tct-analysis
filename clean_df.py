@@ -212,4 +212,6 @@ def clean_df(
                 ax.grid(axis="x")
             axc[0].set_title("Channel cuts")
             figc.savefig(subdir / "6_channel_cuts.png", dpi=150)
+
+        return df
     
