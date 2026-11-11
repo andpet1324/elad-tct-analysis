@@ -143,7 +143,6 @@ def analysis(
                 EMPTY_CHANNELS, ALLOWANCE, NOISE_THRESHOLD, PLOTCHANNEL, CHMIN, CHMAX)
 
             if df is None:
-                print("Empty")
                 continue
 
             # Current position
