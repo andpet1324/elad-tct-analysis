@@ -7,8 +7,6 @@ import warnings
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as tck
-import json
 import pathlib
 import pickle
 import itertools
@@ -212,7 +210,7 @@ def main(args: list[str] | None = None):
     parser.add_argument("data", type=pathlib.Path, nargs='+', help="Data file directory")
     parser.add_argument("-ped", "--pedestal", required=True, type=pathlib.Path, help="Pedestal data")
     parser.add_argument("-plots", "--plots", type=pathlib.Path, help="Path to folder for plots")
-    parser.add_argument("-c", "--cache", type=pathlib.Path, default=None,
+    parser.add_argument("-cache", "--cache", type=pathlib.Path, default=None,
                 help="Cache file (.parquet) for the parsed data")
     parser.add_argument("--rebuild-data", action="store_true", help="Ignore and rewrite the data caches")
     parser.add_argument("--rebuild-ana", action="store_true", help="Ignore and rewrite the analysis caches")

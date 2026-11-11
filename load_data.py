@@ -61,3 +61,13 @@ def load_chunk(paths, cache: pathlib.Path | None, k: int, CHUNK_SIZE: int, rebui
     if cache is not None:
         chunk_cache = cache.with_name(f"{cache.stem}_{k:03d}{cache.suffix}")
     return load_data(chunk, chunk_cache, k, rebuild)
+
+
+def isdir(dir):
+    if not dir.is_dir():
+        print("Plots directory does not exist! Making it now...")
+        try:
+            dir.mkdir(parents=True)
+        except Exception as err:
+            print(f"Exception when creating dir with {err}")
+    return dir

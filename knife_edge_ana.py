@@ -11,7 +11,7 @@ import argparse
 from tqdm import tqdm
 from typing import Any
 
-from load_data import load_chunk
+from load_data import load_chunk, isdir
 from clean_df import clean_df
 from get_delay import get_delay
 
@@ -120,26 +120,25 @@ def analysis(
         for df in data:
             df_id += 1
             progress_bar.update(1)
+            # Current position
+            z = df["z"].iloc[0]
+            x = df["x"].iloc[0]
 
             df = clean_df(
                 df, pedestals, df_id, subdir, args.fast_common_mode, delay, sigma_t,
                 EMPTY_CHANNELS, ALLOWANCE, NOISE_THRESHOLD, PLOTCHANNEL, CHMIN, CHMAX)
 
-            if df is None:
-                print("Empty")
-                continue
-
-            # Current position
-            z = df["z"].iloc[0]
-            x = df["x"].iloc[0]
-
             if z not in ch_mean_adc[ch]:
                 ch_mean_adc[ch].setdefault(z, {})
+
+            if df is None:
+                ch_mean_adc[ch][z][x] = 0
+                continue
+
             ch_mask = df["channel"] == ch
             ch_mean_adc[ch][z][x] = df[ch_mask]["signal"].mean()
                     
         del data
-
     del(progress_bar)
 
 def main(args: list[str] | None = None):
@@ -147,7 +146,7 @@ def main(args: list[str] | None = None):
     parser.add_argument("data", type=pathlib.Path, nargs='+', help="Data file directory")
     parser.add_argument("-ped", "--pedestal", required=True, type=pathlib.Path, help="Pedestal data")
     parser.add_argument("-plots", "--plots", type=pathlib.Path, help="Path to folder for plots")
-    parser.add_argument("-c", "--cache", type=pathlib.Path, default=None,
+    parser.add_argument("-cache", "--cache", type=pathlib.Path, default=None,
                 help="Cache file (.parquet) for the parsed data")
     parser.add_argument("--rebuild-data", action="store_true", help="Ignore and rewrite the data caches")
     parser.add_argument("--rebuild-ana", action="store_true", help="Ignore and rewrite the analysis caches")
@@ -157,14 +156,8 @@ def main(args: list[str] | None = None):
     # Parse arguments
     args = parser.parse_args(args)
     path_pedestals = args.pedestal
-    plotdir = args.plots
-    subdir = plotdir / "adcs"
-    if not subdir.is_dir():
-        print("Plots directory does not exist! Making it now...")
-        try:
-            subdir.mkdir(parents=True)
-        except Exception as err:
-            print(f"Exception when creating dir with {err}")
+    plotdir = isdir(args.plots)
+    subdir = isdir(plotdir / "adcs")
 
     # Build caches in chunks to not overload pc in memory
     # Allows to handle very large datasets
