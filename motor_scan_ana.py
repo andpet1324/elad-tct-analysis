@@ -10,12 +10,14 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 import json
 import pathlib
+import pickle
 import itertools
 import argparse
-import pyarrow as pa
-import pyarrow.parquet as pq
-import pyarrow.compute as pc
 from tqdm import tqdm
+
+from load_data import load_chunk
+from clean_df import clean_df
+from get_delay import get_delay
 
 plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
 
@@ -36,63 +38,11 @@ CH2 = 97
 CH1CENTER = 6.785
 CH2CENTER = 6.845
 
+DEFAULT_DELAY = 50
+DEFAULT_TIME_WINDOW = 5.0
+
 PITCH = 0.055
-
-def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = False) -> pd.DataFrame:
-    if (cache is not None and cache.exists() and not rebuild
-            and cache.stat().st_mtime > max(p.stat().st_mtime for p in paths)):
-        tqdm.write(f"Loading cache {cache}")
-        return pd.read_parquet(
-            cache,
-            dtype_backend="pyarrow")
-
-    # We need pyarrow for these large datasets in pandas
-    # When we have like 500+ files I think
-    tables = []
-    for i, path in enumerate(paths):
-        print(f"File {i} / {len(paths) - 1} in chunk {chunk}")
-        with open(path) as f:
-            meta = json.loads(f.readline().lstrip("# "))
-        meta.pop("channels", None)
-        keep = ("run_id", "x", "z", "voltage")
-        meta = {k: meta[k] for k in keep}
-        df = pd.read_csv(path, header=1).assign(**meta)
-        # df = pd.read_csv(path, header=1)
-        tables.append(pa.Table.from_pandas(df, preserve_index=False))
-        del df
-    table = pa.concat_tables(tables, promote_options="default")
-    del tables
-
-    new_cols = []
-    for col in table.columns:
-        if pa.types.is_floating(col.type):
-            col = col.cast(pa.float32())
-        elif pa.types.is_string(col.type) or pa.types.is_large_string(col.type):
-            col = pc.dictionary_encode(col)
-        new_cols.append(col)
-    table = pa.table(new_cols, names=table.column_names)
-
-    if cache is not None:
-        try:
-            pq.write_table(table, cache)
-            print(f"Wrote cache {cache}")
-        except Exception as err:
-            print(f"Writing cache failed with {err}")
-
-    df = table.to_pandas(types_mapper=pd.ArrowDtype)
-    del table
-    return df
-
-
 CHUNK_SIZE = 100
-def load_chunk(paths, cache: pathlib.Path | None, k: int, rebuild: bool = False) -> pd.DataFrame:
-    """Loads files k*100 ... (k+1)*100 - 1, with their own numbered cache."""
-    paths = sorted(paths)
-    chunk = paths[k * CHUNK_SIZE:(k + 1) * CHUNK_SIZE]
-    chunk_cache = None
-    if cache is not None:
-        chunk_cache = cache.with_name(f"{cache.stem}_{k:03d}{cache.suffix}")
-    return load_data(chunk, chunk_cache, k, rebuild)
 
 
 def gaussian(x, a, mean, stdev):
@@ -112,204 +62,34 @@ def polynomial(x, a, b, c):
     return a*x**2 + b*x + c
 
 
-def common_mode_subtraction(df: pd.DataFrame, fast: bool = False) -> pd.DataFrame:
-    """
-    Takes a pedestal subtracted df and applies common mode subtraction
-    Has to be done per chip half
-    The fast method is actually not quite bad compared to the fit
-    """
-    if fast: # Skips gaussian fit and goes straight for median
-        df["chip"] = df["channel"] // 128
-        df["shift"] = df.groupby(["run", "chip"])["signal"].transform("median")
-        df["signal"] = df["signal"] - df["shift"]
-        return df
-    
-    runs = df.groupby("run")
-    shifts = {0: {}, 1: {}}
-    for run_id, run_df in runs:
-        # fit the adc distribution and take mean as baseline value
-        for chip in [0,1]:
-            ch_mask = (run_df["channel"] >= 128 * chip) & (run_df["channel"] < 128 * (1+chip))
-            adc = run_df.loc[ch_mask, "signal"].to_numpy() # make into float64 for better accuracy?
-            med = np.median(adc) # take median to minimize outlier affecting the fit
-            sigma = 1.4826 * np.median(np.abs(adc - med))
-            counts, edges = np.histogram(
-                adc, bins=BINS, range=(med - 5 * sigma, med + 5 * sigma)
-            )
-            centers = 0.5 * (edges[:-1] + edges[1:])
-            p0 = [counts.max(), med, sigma]
-            try:
-                popt, pcov = curve_fit(gaussian, centers, counts, p0=p0)
-                shifts[chip][run_id] = popt[1] #mean
-                # ADD PCOV ERROR
-            except Exception as err:
-                tqdm.write(f"Fit failed with {err}")
-                shifts[chip][run_id] = med
-
-    df["chip"] = df["channel"] // 128
-    df["shift"] = np.where(df["chip"] == 0,
-                    df["run"].map(shifts[0]),
-                    df["run"].map(shifts[1]))
-    df["signal"] = df["signal"] - df["shift"]
-    return df
-
-
-def remove_noisy_channels(df: pd.DataFrame, allowance: int = ALLOWANCE, threshold: float = NOISE_THRESHOLD) -> pd.DataFrame:
-    """
-        Removes the very noisy channels. We only allow removal of 
-        channels close to the empty channels to not remove the signal
-    """
-    df["noise"] = df.groupby("channel")["adc"].transform("std")
-    ch = df["channel"].to_numpy()
-    dist = np.abs(ch[:, None] - np.array(EMPTY_CHANNELS)[None, :]).min(axis=1)
-    mask = (
-        (df["adc"] > 
-        df.groupby(["channel"])["adc"].transform("median") + threshold) &
-        (dist <= allowance)
-    )
-    noisy_channels = df.loc[mask, "channel"].unique()
-    df = df[~df["channel"].isin(noisy_channels)]
-
-    return df
-
-
-def remove_empty_channels(df: pd.DataFrame) -> pd.DataFrame:
-    """
-        Masks empty channels and their very noisy neighbours.
-    """
-    ch = df["channel"]
-    mask = ~ch.isin(EMPTY_CHANNELS)
-    df = df[mask]
-    df = remove_noisy_channels(df)
-    return df
-
-
-def get_delay(df: pd.DataFrame, plotdir: pathlib.Path) -> tuple[float, float]:
-    """
-        Scans ADC vs time and returns the time of the min signal
-    """
-    t = df["time"].to_numpy()
-    s = df["signal"].to_numpy()
-    pos = s >= TIME_THRESHOLD
-    neg = s <= -TIME_THRESHOLD
-    edges = np.histogram_bin_edges(t[pos | neg], bins=100)
-    counts_pos, _ = np.histogram(t[pos], bins=edges)
-    counts_neg, _ = np.histogram(t[neg], bins=edges)
-
-    # fit the signal in time. We only fit the negative
-    centers = 0.5 * (edges[:-1] + edges[1:])
-    peak = counts_neg.max()
-    argmax = counts_neg.argmax()
-    p0 = [peak, t[argmax], (t.max() - t.min()) / 10]
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", RuntimeWarning)
-            warnings.simplefilter("error", OptimizeWarning)
-            popt, pcov = curve_fit(gaussian, centers, counts_neg, p0=p0)
-            # if abs(popt[0]) < counts_neg.max() / 2:
-            #     raise ValueError("Fit amplitude too low!")
-            # elif abs(popt[1] - t[argmax]) > 10:
-            #     raise ValueError("Fit mean not centered!")
-            if abs(popt[2] < 5):
-                popt[2] = 5.0
-    except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
-        tqdm.write(f"Fit failed with {err}")
-        return (None, None)
-
-    fig, ax = plt.subplots(1,1)
-    ax.stairs(counts_pos, edges, label="Positive signal")
-    ax.stairs(-counts_neg, edges, label="Negative signal")
-    xl = np.linspace(popt[1] - 2 * popt[2], popt[1] + 2 * popt[2], 1000)
-    ax.plot(
-        xl, -gaussian(xl, *popt), 
-        label=f"Fit: $\mu$ = {popt[1]:.2f} ns, $\sigma$ = {popt[2]:.2f} ns")
-    ax.set_xlabel("Time [ns]")
-    ax.set_ylabel("# Hits")
-    ax.legend()
-    ax.set_title(f"{TIME_THRESHOLD} ADC hit threshold, {df["voltage"].iloc[0]} V")
-    fig.savefig(plotdir / f"signal_in_time.png", dpi=150)
-    return (popt[1], popt[2])
-
-
 def cluster_sizes(channels, max_gap = 1):
     ch = np.unique(channels)
     edges = np.flatnonzero(np.diff(ch) > max_gap) + 1
     return np.diff(np.r_[0, edges, ch.size])
 
+def analysis(
+        paths, plotdir, subdir, pedestals, n_chunks, args,
+        ch1: int, ch2: int, results: list,
+        delay: float, sigma_t: float) -> None:
 
-def main(args: list[str] | None = None):
-    parser = argparse.ArgumentParser(description="Motor scan analyser")
-    parser.add_argument("data", type=pathlib.Path, nargs='+', help="Data file directory")
-    parser.add_argument("-ped", "--pedestal", required=True, type=pathlib.Path, help="Pedestal data")
-    parser.add_argument("-plots", "--plots", type=pathlib.Path, help="Path to folder for plots")
-    parser.add_argument("-c", "--cache", type=pathlib.Path, default=None,
-                help="Cache file (.parquet) for the parsed data")
-    parser.add_argument("--rebuild", action="store_true", help="Ignore and rewrite the cache")
-    parser.add_argument("--fast-common-mode", type=bool, default=False, help="Fast and weak method of subtracting the common mode")
-
-    # ---------------------------- PARSING ----------------------------
-    # Parse arguments
-    args = parser.parse_args(args)
-    path_pedestals = args.pedestal
-    plotdir = args.plots
-    subdir = plotdir / "adcs"
-    if not subdir.is_dir():
-        print("Plots directory does not exist! Making it now...")
-        try:
-            subdir.mkdir(parents=True)
-        except Exception as err:
-            print(f"Exception when creating dir with {err}")
-
-    # Build caches in chunks to not overload pc in memory
-    # Allows to handle very large datasets
-    paths = sorted(args.data)
-    n_chunks = -(-len(paths) // CHUNK_SIZE)
-    if args.cache is not None:
-        for k in range(n_chunks):
-            print(f"Caching chunk {k} / {n_chunks - 1}")
-            load_chunk(paths, args.cache, k, args.rebuild)
-
-    # Get pedestals
-    pedestals = pd.read_csv(path_pedestals, header=1)
-
-    # ---------------------------- PLOTTING ----------------------------
-    print("Plotting...")
-
-    colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
-    fig_hits, ax_hits = plt.subplots(1,1)
-
-    # Declare variables
-    mean_channel_hits = {}
-    ch1 = CH1
-    ch2 = CH2
-    ch_counts = {}
-    ch_adc = {}
-    delay = None
-    sigma_t = None
+    ch_adc, mean_channel_hits, ch_counts, clusters, hits_list = results
     count_plots = 0
-    clusters = {}
-
-    # Here I assume the voltage is constant for the whole dataset
-    # Would not work with a bias scan
-    with open(paths[0]) as f:
-        voltage = json.loads(f.readline().lstrip("# "))["voltage"]
 
     # First we retrieve the delay parameter
     print("Getting delay parameter...")
+    df_id = -1
     for k in range(n_chunks):
-        # The cache pre-pass above already honoured --rebuild
-        df_all = load_chunk(paths, args.cache, k)
+        df_all = load_chunk(paths, args.cache, k, CHUNK_SIZE)
         data = [g for _, g in df_all.groupby("run_id")]
         del df_all
         for df in data:
-            df = df.merge(pedestals[["channel", "pedestals"]], on="channel", how="left")
-            df["signal"] = df["adc"] - df["pedestals"]
-            df["chip"] = df["channel"] // 128
-            df = remove_empty_channels(df)
-            df = common_mode_subtraction(df, args.fast_common_mode)
+            df = clean_df(
+                df, pedestals, df_id, subdir, args.fast_common_mode, delay, sigma_t,
+                EMPTY_CHANNELS, ALLOWANCE, NOISE_THRESHOLD, PLOTCHANNEL, CHMIN, CHMAX,
+                no_selections=True)
             if delay == None:
-                d, st = get_delay(df, plotdir)
-                if d == None:
+                d, st = get_delay(df, plotdir, TIME_THRESHOLD)
+                if d == None or st == None:
                     continue
                 delay = np.abs(d)
                 sigma_t = np.abs(st)
@@ -319,19 +99,21 @@ def main(args: list[str] | None = None):
         if delay != None:
             break
 
-    # delay = 50
-    # sigma_t = 5
+    if d == None or st == None:
+        print("No delay parameter found! Likely there is no signal...")
+        d = DEFAULT_DELAY
+        st = DEFAULT_TIME_WINDOW
 
-    # Loop through the data
     progress_bar = tqdm(
         total=len(paths),
         desc="Processing data",
-        bar_format='[{elapsed}<{remaining}] {n_fmt}/{total_fmt} | {l_bar}{bar} {rate_fmt}{postfix}', 
+        bar_format='[{elapsed}<{remaining}] {n_fmt}/{total_fmt} | {l_bar}{bar} {rate_fmt}{postfix}',
         colour='yellow')
+
+    # Loop through the data
     df_id = -1
     for k in range(n_chunks):
-        # The cache pre-pass above already honoured --rebuild
-        df_all = load_chunk(paths, args.cache, k)
+        df_all = load_chunk(paths, args.cache, k, CHUNK_SIZE)
         data = [g for _, g in df_all.groupby("run_id")]
         del df_all
 
@@ -340,115 +122,14 @@ def main(args: list[str] | None = None):
             #     continue
             df_id += 1
             progress_bar.update(1)
-            df["noise"] = df.groupby("channel")["adc"].transform("std")
 
-            if df_id == PLOTCHANNEL:
-                figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-                axc[0].plot(df["channel"], df["adc"], 'o', ms=2)
-                axc[1].plot(df["channel"], df["noise"], '-')
-                axc[0].set_ylabel("ADC")
-                axc[1].set_ylabel("Noise")
-                axc[1].set_xlabel("Channel")
-                axc[0].set_title("Raw data")
-                for ax in axc:
-                    ax.grid(axis="x")
-                figc.savefig(subdir / "1_raw_adc.png", dpi=150)
+            df = clean_df(
+                df, pedestals, df_id, subdir, args.fast_common_mode, delay, sigma_t,
+                EMPTY_CHANNELS, ALLOWANCE, NOISE_THRESHOLD, PLOTCHANNEL, CHMIN, CHMAX)
 
-            if df.empty:
-                tqdm.write(f"Df {df_id} is empty!")
+            if df is None:
+                print("Empty")
                 continue
-
-            # Subtract pedestals
-            df = df.merge(pedestals[["channel", "pedestals"]], on="channel", how="left")
-            df["signal"] = df["adc"] - df["pedestals"]
-            if df.empty:
-                tqdm.write(f"Df {df_id} is empty after pedestal subtraction!")
-                continue
-            df["noise"] = df.groupby("channel")["signal"].transform("std")
-
-            if df_id == PLOTCHANNEL:
-                figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-                axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
-                axc[1].plot(df["channel"], df["noise"], '-')
-                axc[0].set_ylabel("ADC")
-                axc[1].set_ylabel("Noise")
-                axc[1].set_xlabel("Channel")
-                for ax in axc:
-                    ax.grid(axis="x")
-                axc[0].set_title("Pedestal subtraction")
-                figc.savefig(subdir / "2_pedestal_sub.png", dpi=150)
-
-            # Remove empty and noisy channels
-            df["chip"] = df["channel"] // 128
-            df = remove_empty_channels(df)
-
-            if df_id == PLOTCHANNEL:
-                figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-                axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
-                axc[1].plot(df["channel"], df["noise"], '-')
-                axc[0].set_ylabel("ADC")
-                axc[1].set_ylabel("Noise")
-                axc[1].set_xlabel("Channel")
-                for ax in axc:
-                    ax.grid(axis="x")
-                axc[0].set_title("Noisy channel subtraction")
-                figc.savefig(subdir / "3_noisy_channels.png", dpi=150)
-
-            # Subtract common mode
-            df = common_mode_subtraction(df, args.fast_common_mode)
-            # Important to recalculate noise after correction
-            df["noise"] = df.groupby("channel")["signal"].transform("std")
-
-            if df_id == PLOTCHANNEL:
-                figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-                axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
-                axc[1].plot(df["channel"], df["noise"], '-')
-                axc[0].set_ylabel("ADC")
-                axc[1].set_ylabel("Noise")
-                axc[1].set_xlabel("Channel")
-                for ax in axc:
-                    ax.grid(axis="x")
-                axc[0].set_title("Common mode subtraction")
-                figc.savefig(subdir / "4_common_mode.png", dpi=150)
-
-            # Chose a time window (one stdev)
-            df = df[abs(df["time"] - delay) < sigma_t]
-            if df.empty:
-                tqdm.write(f"Df {df_id} is empty after time cuts!")
-                continue
-
-            if df_id == PLOTCHANNEL:
-                figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-                axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
-                axc[1].plot(df["channel"], df["noise"], '-')
-                axc[0].set_ylabel("ADC")
-                axc[1].set_ylabel("Noise")
-                axc[1].set_xlabel("Channel")
-                for ax in axc:
-                    ax.grid(axis="x")
-                axc[0].set_title("Time cuts")
-                figc.savefig(subdir / "5_time_cuts.png", dpi=150)
-
-            # Region of interest
-            ch_min = CHMIN
-            ch_max = CHMAX
-            channels_mask = (df["channel"] > ch_min) & (df["channel"] < ch_max)
-            df = df[channels_mask]
-            if df.empty:
-                tqdm.write(f"Df {df_id} is empty after channel selection!")
-                continue
-
-            if df_id == PLOTCHANNEL:
-                figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-                axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
-                axc[1].plot(df["channel"], df["noise"], '-')
-                axc[0].set_ylabel("ADC")
-                axc[1].set_ylabel("Noise")
-                axc[1].set_xlabel("Channel")
-                for ax in axc:
-                    ax.grid(axis="x")
-                axc[0].set_title("Channel cuts")
-                figc.savefig(subdir / "6_channel_cuts.png", dpi=150)
 
             # Current position
             z = df["z"].iloc[0]
@@ -489,10 +170,7 @@ def main(args: list[str] | None = None):
                 continue
 
             # Hits histogram
-            color = next(colors)
-            ax_hits.stairs(
-                hits.values, np.append(hits.index, hits.index[-1] + 1) - 0.5, 
-                color=color)
+            hits_list.append((hits.index, hits.values))
 
             # Clusters
             sizes = hit_df.groupby("run")["channel"].apply(cluster_sizes)
@@ -511,8 +189,102 @@ def main(args: list[str] | None = None):
         del data
 
     del(progress_bar)
-    print("Saving plots...")
-    
+
+def main(args: list[str] | None = None):
+    parser = argparse.ArgumentParser(description="Motor scan analyser")
+    parser.add_argument("data", type=pathlib.Path, nargs='+', help="Data file directory")
+    parser.add_argument("-ped", "--pedestal", required=True, type=pathlib.Path, help="Pedestal data")
+    parser.add_argument("-plots", "--plots", type=pathlib.Path, help="Path to folder for plots")
+    parser.add_argument("-c", "--cache", type=pathlib.Path, default=None,
+                help="Cache file (.parquet) for the parsed data")
+    parser.add_argument("--rebuild-data", action="store_true", help="Ignore and rewrite the data caches")
+    parser.add_argument("--rebuild-ana", action="store_true", help="Ignore and rewrite the analysis caches")
+    parser.add_argument("--fast-common-mode", type=bool, default=False, help="Fast and weak method of subtracting the common mode")
+
+    # ---------------------------- PARSING ----------------------------
+    # Parse arguments
+    args = parser.parse_args(args)
+    path_pedestals = args.pedestal
+    plotdir = args.plots
+    subdir = plotdir / "adcs"
+    if not subdir.is_dir():
+        print("Plots directory does not exist! Making it now...")
+        try:
+            subdir.mkdir(parents=True)
+        except Exception as err:
+            print(f"Exception when creating dir with {err}")
+
+    # Build caches in chunks to not overload pc in memory
+    # Allows to handle very large datasets
+    paths = sorted(args.data)
+    n_chunks = -(-len(paths) // CHUNK_SIZE)
+    if args.cache is not None:
+        for k in range(n_chunks):
+            print(f"Caching chunk {k} / {n_chunks - 1}")
+            load_chunk(paths, args.cache, k, CHUNK_SIZE, args.rebuild_data)
+
+    # Get pedestals
+    pedestals = pd.read_csv(path_pedestals, header=1)
+
+    # ---------------------------- ANALYSIS ----------------------------
+    print("Analyzing...")
+
+    # Declare variables
+    ch1 = CH1
+    ch2 = CH2
+    results = [{}, {}, {}, {}, []]
+    delay = None
+    sigma_t = None
+
+    # Cache of the analysis result
+    analysis_cache = None
+    if args.cache is not None:
+        analysis_cache = args.cache.with_name(f"{args.cache.stem}_analysis.pkl")
+
+    loaded = False
+    if (analysis_cache is not None and analysis_cache.exists() and not args.rebuild_ana
+            and analysis_cache.stat().st_mtime > max(
+                p.stat().st_mtime for p in [*paths, path_pedestals])):
+        try:
+            with open(analysis_cache, "rb") as f:
+                results = pickle.load(f)
+            loaded = True
+            print(f"Loaded analysis cache {analysis_cache}")
+        except Exception as err:
+            print(f"Reading analysis cache failed with {err}")
+            results = [{}, {}, {}, {}, []]
+
+    if not loaded:
+        analysis(
+            paths, plotdir, subdir, pedestals, n_chunks, args,
+            ch1, ch2, results, delay, sigma_t
+        )
+        if analysis_cache is not None:
+            try:
+                with open(analysis_cache, "wb") as f:
+                    pickle.dump(results, f)
+                print(f"Wrote analysis cache {analysis_cache}")
+            except Exception as err:
+                print(f"Writing analysis cache failed with {err}")
+
+    # ---------------------------- PLOTTING ----------------------------
+    print("Plotting...")
+
+    ch_adc, mean_channel_hits, ch_counts, clusters, hits_list = results
+
+    # Here I assume the voltage is constant for the whole dataset
+    # Would not work with a bias scan
+    with open(paths[0]) as f:
+        voltage = json.loads(f.readline().lstrip("# "))["voltage"]
+
+    colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
+    fig_hits, ax_hits = plt.subplots(1,1)
+    for hit_channels, hit_values in hits_list:
+        color = next(colors)
+        ax_hits.stairs(
+            hit_values, np.append(hit_channels, hit_channels[-1] + 1) - 0.5,
+            color=color)
+
     # Mean signal over two select channels
     fig_adc, ax_adc = plt.subplots(1,1)
     fig_zs, ax_zs = plt.subplots(1,1)
