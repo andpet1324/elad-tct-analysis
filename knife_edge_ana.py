@@ -4,6 +4,8 @@ from scipy.special import erf
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 import warnings
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 import json
@@ -19,8 +21,8 @@ from get_delay import get_delay
 plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
 
 ALPHA = 1
-TIME_THRESHOLD = 10
-HIT_THRESHOLD = 10
+TIME_THRESHOLD = 22
+HIT_THRESHOLD = 22
 
 BINS = 100
 EMPTY_CHANNELS = [0, 63, 64, 127, 128, 191, 192, 256]
@@ -90,7 +92,7 @@ def main(args: list[str] | None = None):
     if args.cache is not None:
         for k in range(n_chunks):
             print(f"Caching chunk {k} / {n_chunks - 1}")
-            load_chunk(paths, args.cache, k, args.rebuild)
+            load_chunk(paths, args.cache, k, CHUNK_SIZE, args.rebuild)
 
     # Get pedestals
     pedestals = pd.read_csv(path_pedestals, header=1)
@@ -116,11 +118,10 @@ def main(args: list[str] | None = None):
     print("Getting delay parameter...")
     df_id = -1
     for k in range(n_chunks):
-        df_all = load_chunk(paths, args.cache, k)
+        df_all = load_chunk(paths, args.cache, k, CHUNK_SIZE)
         data = [g for _, g in df_all.groupby("run_id")]
         del df_all
         for df in data:
-            df = df.merge(pedestals[["channel", "pedestals"]], on="channel", how="left")
             df = clean_df(
                 df, pedestals, df_id, subdir, args.fast_common_mode, delay, sigma_t,
                 EMPTY_CHANNELS, ALLOWANCE, NOISE_THRESHOLD, PLOTCHANNEL, CHMIN, CHMAX,
@@ -146,7 +147,7 @@ def main(args: list[str] | None = None):
     # Loop through the data
     df_id = -1
     for k in range(n_chunks):
-        df_all = load_chunk(paths, args.cache, k)
+        df_all = load_chunk(paths, args.cache, k, CHUNK_SIZE)
         data = [g for _, g in df_all.groupby("run_id")]
         del df_all
 
@@ -174,16 +175,16 @@ def main(args: list[str] | None = None):
     del(progress_bar)
     print("Saving plots...")
 
+    fig, ax = plt.subplots(1,1)
     sigmas = {}
     for _, chdict in ch_mean_adc.items():
         for z, zdict in chdict.items():
             # Get the sigma of the erf fit of mean adc vs x
-            plt.plot(zdict.keys(), zdict.values())
-            plt.show()
+            ax.plot(zdict.keys(), zdict.values())
+            fig.savefig(plotdir / f"knife_edge_z{z}.png", dpi=150)
             sigma = 1 # GET THE SIGMA FROM FIT
             sigmas[z] = sigma
 
-    fig, ax = plt.subplots(1,1)
     for z, sigma in sigmas.items():
         xs = sorted(z)
         ax.plot(xs, 1000 * [sigmas[k] for k in xs], "-o", ms=3)

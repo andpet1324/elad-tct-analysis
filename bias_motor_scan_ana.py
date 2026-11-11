@@ -5,7 +5,7 @@ from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 import warnings
 import matplotlib
-matplotlib.use("Agg")  # headless: no X11 needed over ssh
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 import json
@@ -632,30 +632,6 @@ def main(args: list[str] | None = None):
         ax_zs.set_ylabel("σ in x [µm]")
         fig_zs.savefig(biasdir / "focus_scan.png", dpi=150)
 
-        ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())    
-        # ax_adc.legend()
-        ax_adc.set_title(f"{voltage} V")
-        ax_adc.set_xlabel("Position in x [mm]")
-        ax_adc.set_ylabel("Mean ADC")
-        ax_adc.set_xlim(CH1CENTER - 0.1, CH2CENTER + 0.1)
-        fig_adc.savefig(biasdir / "two_channels_mean_adc.png", dpi=150)
-
-        # Cluster sizes
-        # fig_cl, ax_cl = plt.subplots(1,1)
-        # for z, z_df in clusters.items():
-        #     xs = sorted(z_df)
-        #     ax_cl.plot(xs, [z_df[k] for k in xs], "-o", ms=3, label=f"z = {z:.2f}")
-        # ax_cl.set_title(f"{HIT_THRESHOLD} ADC hit threshold, {voltage} V")
-        # ax_cl.set_xlabel("Position in x [mm]")
-        # ax_cl.set_ylabel("Cluster size mean [channel]")
-        # fig_cl.savefig(biasdir / "clusters.png", dpi=150)
-
-        # Hits
-        # ax_hits.set_title(f"{HIT_THRESHOLD} ADC hit threshold, {voltage} V")
-        # ax_hits.set_xlabel("Channel")
-        # ax_hits.set_ylabel("# Hits")
-        # fig_hits.savefig(biasdir / "hits.png", dpi=150)
-
         # Avg hits
         fig_avg_hits, ax_avg_hits = plt.subplots(1,1)
         for z, zf in mean_channel_hits[voltage].items():
@@ -667,28 +643,14 @@ def main(args: list[str] | None = None):
         ax_avg_hits.set_xlabel("Position in x [mm]")
         ax_avg_hits.set_ylabel("Hit average [channel]")
         ax_avg_hits.grid(True)
-        # ax_avg_hits.legend(ncols=3, fontsize="small")
         fig_avg_hits.savefig(biasdir / "avg_hits.png", dpi=150)
-
-        # Hits in specified channels
-        fig_hc, ax_hc = plt.subplots(1,1)
-        colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
-        for z, zf in ch_counts[voltage].items():
-            ax_hc.plot(
-                zf[ch1], zf[ch2], 
-                '-o', label=f"z = {z:.3f}", color=next(colors))
-
-        ax_hc.set_title(f"{HIT_THRESHOLD} ADC hit threshold, {voltage} V")
-        ax_hc.set_xlabel(f"# Hits in ch {ch1}")
-        ax_hc.set_ylabel(f"# Hits in ch {ch2}")
-        fig_hc.savefig(biasdir / "hits_channels.png", dpi=150)
 
     fig_f, ax_f = plt.subplots(1,1)
     for i, ch in enumerate([ch1, ch2]):
         pts = sorted(focuses.get(ch, {}).items())
         if not pts:
             continue
-        vs = [float(v) for v, _ in pts]
+        volts = [float(v) for v, _ in pts]
         zm = [p[0] for _, p in pts]
         ze = [p[1] for _, p in pts]
         sm = [p[2] for _, p in pts]

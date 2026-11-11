@@ -53,7 +53,7 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
     return df
 
 
-def load_chunk(paths, cache: pathlib.Path | None, k: int, rebuild: bool = False, CHUNK_SIZE: int) -> pd.DataFrame:
+def load_chunk(paths, cache: pathlib.Path | None, k: int, CHUNK_SIZE: int, rebuild: bool = False) -> pd.DataFrame:
     """Loads files k*100 ... (k+1)*100 - 1, with their own numbered cache."""
     paths = sorted(paths)
     chunk = paths[k * CHUNK_SIZE:(k + 1) * CHUNK_SIZE]
