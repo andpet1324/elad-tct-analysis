@@ -149,7 +149,8 @@ def main(args: list[str] | None = None):
     parser.add_argument("-plots", "--plots", type=pathlib.Path, help="Path to folder for plots")
     parser.add_argument("-c", "--cache", type=pathlib.Path, default=None,
                 help="Cache file (.parquet) for the parsed data")
-    parser.add_argument("--rebuild", action="store_true", help="Ignore and rewrite the cache")
+    parser.add_argument("--rebuild-data", action="store_true", help="Ignore and rewrite the data caches")
+    parser.add_argument("--rebuild-ana", action="store_true", help="Ignore and rewrite the analysis caches")
     parser.add_argument("--fast-common-mode", type=bool, default=False, help="Fast and weak method of subtracting the common mode")
 
     # ---------------------------- PARSING ----------------------------
@@ -172,7 +173,7 @@ def main(args: list[str] | None = None):
     if args.cache is not None:
         for k in range(n_chunks):
             print(f"Caching chunk {k} / {n_chunks - 1}")
-            load_chunk(paths, args.cache, k, CHUNK_SIZE, args.rebuild)
+            load_chunk(paths, args.cache, k, CHUNK_SIZE, args.rebuild_data)
 
     # Get pedestals
     pedestals = pd.read_csv(path_pedestals, header=1)
@@ -192,7 +193,7 @@ def main(args: list[str] | None = None):
         analysis_cache = args.cache.with_name(f"{args.cache.stem}_analysis_ch{ch}.pkl")
 
     loaded = False
-    if (analysis_cache is not None and analysis_cache.exists() and not args.rebuild
+    if (analysis_cache is not None and analysis_cache.exists() and not args.rebuild_ana
             and analysis_cache.stat().st_mtime > max(
                 p.stat().st_mtime for p in [*paths, path_pedestals])):
         try:
@@ -216,8 +217,6 @@ def main(args: list[str] | None = None):
                 print(f"Wrote analysis cache {analysis_cache}")
             except Exception as err:
                 print(f"Writing analysis cache failed with {err}")
-
-
 
     # ---------------------------- PLOTTING ----------------------------
     print("Plotting...")
