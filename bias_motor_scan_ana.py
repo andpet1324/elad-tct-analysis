@@ -655,9 +655,9 @@ def main(args: list[str] | None = None):
         ze = [p[1] for _, p in pts]
         sm = [p[2] for _, p in pts]
         se = [p[3] for _, p in pts]
-        ax_f.errorbar(vs, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
+        ax_f.errorbar(volts, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
                       color=f"C{i}", label=f"zmin")
-        ax_f.errorbar(vs, sm, yerr=se, fmt='o-', ms=4, capsize=3,
+        ax_f.errorbar(volts, sm, yerr=se, fmt='o-', ms=4, capsize=3,
                 color=f"C{i+1}", label=f"zmin")
     ax_f.set_xlabel("Bias voltage [V]")
     ax_f.set_ylabel("Best focus z [mm]")
