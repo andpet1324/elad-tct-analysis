@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import json
+import pickle
 import pathlib
 import argparse
 from tqdm import tqdm
@@ -184,10 +185,37 @@ def main(args: list[str] | None = None):
     ch_mean_adc = {ch: {}}
     delay = None
     sigma_t = None
-    analysis(
-        paths, plotdir, subdir, pedestals, n_chunks, args,
-        ch, ch_mean_adc, delay, sigma_t
-    )
+
+    # Cache of the analysis result (mean ADC vs position)
+    analysis_cache = None
+    if args.cache is not None:
+        analysis_cache = args.cache.with_name(f"{args.cache.stem}_analysis_ch{ch}.pkl")
+
+    loaded = False
+    if (analysis_cache is not None and analysis_cache.exists() and not args.rebuild
+            and analysis_cache.stat().st_mtime > max(
+                p.stat().st_mtime for p in [*paths, path_pedestals])):
+        try:
+            with open(analysis_cache, "rb") as f:
+                ch_mean_adc = pickle.load(f)
+            loaded = True
+            print(f"Loaded analysis cache {analysis_cache}")
+        except Exception as err:
+            print(f"Reading analysis cache failed with {err}")
+            ch_mean_adc = {ch: {}}
+
+    if not loaded:
+        analysis(
+            paths, plotdir, subdir, pedestals, n_chunks, args,
+            ch, ch_mean_adc, delay, sigma_t
+        )
+        if analysis_cache is not None:
+            try:
+                with open(analysis_cache, "wb") as f:
+                    pickle.dump(ch_mean_adc, f)
+                print(f"Wrote analysis cache {analysis_cache}")
+            except Exception as err:
+                print(f"Writing analysis cache failed with {err}")
 
 
 
