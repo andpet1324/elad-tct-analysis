@@ -4,6 +4,8 @@ from scipy.special import erf
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 import warnings
+import matplotlib
+matplotlib.use("Agg")  # headless: no X11 needed over ssh
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 import json
