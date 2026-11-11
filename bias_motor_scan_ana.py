@@ -613,11 +613,14 @@ def main(args: list[str] | None = None):
                     coefs, cov = np.polyfit(zs, sigmas[ch], 2, cov=True)
                     x = np.linspace(min(zs), max(zs), 100)
                     zmin = -coefs[1] / (2 * coefs[0])
+                    sigmamin = np.polyval(coefs, zmin)
                     if coefs[0] > 0 and min(zs) <= zmin <= max(zs):
                         a, b = coefs[0], coefs[1]
-                        grad = np.array([b / (2 * a**2), -1 / (2 * a)])
-                        zerr = float(np.sqrt(grad @ cov[:2, :2] @ grad))
-                        focuses.setdefault(ch, {})[voltage] = (zmin, zerr)
+                        grad = np.array([b / (2*a**2), -1 / (2*a)])
+                        zerr = float(np.sqrt(grad.T @ cov[:2, :2] @ grad))
+                        grad_s = np.array([b**2/(4*a**2), -b/(2*a), 1])
+                        sigmaerr = float(np.sqrt(grad_s.T @ cov @ grad_s))
+                        focuses.setdefault(ch, {})[voltage] = (zmin, zerr, sigmamin, sigmaerr)
                     ax_zs.plot(x, 1000 * np.polyval(coefs, x), 
                             color=color, label=f"2nd order poly with min at {zmin:.3f} mm")
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
@@ -688,8 +691,12 @@ def main(args: list[str] | None = None):
         vs = [float(v) for v, _ in pts]
         zm = [p[0] for _, p in pts]
         ze = [p[1] for _, p in pts]
+        sm = [p[2] for _, p in pts]
+        se = [p[3] for _, p in pts]
         ax_f.errorbar(vs, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
-                      color=f"C{i}", label=f"Ch {ch}")
+                      color=f"C{i}", label=f"zmin")
+        ax_f.errorbar(vs, sm, yerr=se, fmt='o-', ms=4, capsize=3,
+                color=f"C{i+1}", label=f"zmin")
     ax_f.set_xlabel("Bias voltage [V]")
     ax_f.set_ylabel("Best focus z [mm]")
     ax_f.grid(True)
