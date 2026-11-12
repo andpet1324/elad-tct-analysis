@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from scipy.special import erf
+from scipy.optimize import curve_fit, OptimizeWarning
+import warnings
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -54,6 +56,10 @@ def base_gaussian(x, baseline, a, mean, stdev):
 def box_gaussian(x, A, x0, w, sigma, c):
     s = np.sqrt(2) * sigma
     return 0.5 * A * (erf((x - x0 + w/2) / s) - erf((x - x0 - w/2) / s)) + c
+
+
+def edge(x, A, x0, sigma, c):
+    return 0.5 * A * (1 + erf((x - x0) / (np.sqrt(2) * sigma))) + c
 
 
 def polynomial(x, a, b, c):
@@ -217,21 +223,49 @@ def main(args: list[str] | None = None):
     sigmas = {}
     for _, chdict in ch_mean_adc.items():
         for z, zdict in chdict.items():
+            xs = np.array(sorted(zdict), dtype=float)
+            ys = np.array([zdict[k] for k in sorted(zdict)], dtype=float)
             fig, ax = plt.subplots(1,1)
-            # Get the sigma of the erf fit of mean adc vs x
-            ax.plot(zdict.keys(), zdict.values())
+            ax.plot(xs, ys, "o")
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", RuntimeWarning)
+                    warnings.simplefilter("error", OptimizeWarning)
+                    A0 = ys[-1] - ys[0]
+                    mid = ys[0] + A0 / 2
+                    x0 = xs[np.argmin(np.abs(ys - mid))]
+                    s0 = max(np.ptp(xs) / 10, 1e-4)
+                    p0 = [A0, x0, s0, ys[0]]
+                    lo = [-np.inf, xs.min(), 1e-4, -np.inf]
+                    hi = [np.inf, xs.max(), np.ptp(xs), np.inf]
+                    popt, _ = curve_fit(edge, xs, ys, p0=p0, bounds=(lo, hi))
+                    sigmas[z] = abs(popt[2])
+                    xf = np.linspace(xs.min(), xs.max(), 200)
+                    ax.plot(xf, edge(xf, *popt))
+            except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
+                print(f"Fit of edge failed with {err}")
             fig.savefig(plotdir / f"knife_edge_z{z}.png", dpi=150)
             plt.close()
-            sigma = 1 # GET THE SIGMA FROM FIT
-            sigmas[z] = sigma
 
-    # for z, sigma in sigmas.items():
-    #     xs = sorted(z)
-    #     ax.plot(xs, 1000 * [sigmas[k] for k in xs], "-o", ms=3)
-    # ax.set_title(f"Channel {ch}, {voltage} V")
-    # ax.set_xlabel("Position in z [mm]")
-    # ax.set_ylabel("Beam width [µm]")
-    # fig.savefig(plotdir / "clusters.png", dpi=150)
+    zs = np.array(sorted(sigmas), dtype=float)
+    sig = np.array([sigmas[z] for z in sorted(sigmas)], dtype=float)
+    fig, ax_zs = plt.subplots(1,1)
+    ax_zs.plot(zs, 1000 * sig, "o")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            warnings.simplefilter("error", OptimizeWarning)
+            coefs, cov = np.polyfit(zs, sig, 2, cov=True)
+            residuals = sig - np.polyval(coefs, zs)
+            mad = np.median(np.abs(residuals - np.median(residuals)))
+            mask = np.abs(residuals) < 3 * 1.4826 * mad
+            coefs, cov = np.polyfit(zs[mask], sig[mask], 2, cov=True)
+            x = np.linspace(min(zs), max(zs), 100)
+            ax_zs.plot(x, 1000 * np.polyval(coefs, x))
+    except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
+        print(f"Fit of sigmas failed with {err}")
+    fig.savefig(plotdir / "sigma_vs_z.png", dpi=150)
+    plt.close()
 
 
 if __name__ == "__main__":
