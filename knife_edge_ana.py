@@ -42,6 +42,7 @@ DEFAULT_TIME_WINDOW = 5.0
 CH = 86
 
 PITCH = 0.055
+MAX_REDUCED_CHI2 = 10
 CHUNK_SIZE = 100
 
 
@@ -138,11 +139,17 @@ def analysis(
                 ch_mean_adc[ch].setdefault(z, {})
 
             if df is None:
-                ch_mean_adc[ch][z][x] = 0
+                ch_mean_adc[ch][z][x] = (np.nan, np.nan)
                 continue
 
-            ch_mask = df["channel"] == ch
-            ch_mean_adc[ch][z][x] = df[ch_mask]["signal"].mean()
+            window = df["channel"].between(CHMIN, CHMAX)
+            integrals = df[window].groupby("run")["signal"].sum()
+            if integrals.size == 0:
+                ch_mean_adc[ch][z][x] = (np.nan, np.nan)
+                continue
+            ch_mean_adc[ch][z][x] = (
+                integrals.mean(),
+                integrals.std() / np.sqrt(integrals.size) if integrals.size > 1 else np.nan)
                     
         del data
     del(progress_bar)
@@ -190,7 +197,7 @@ def main(args: list[str] | None = None):
     # Cache of the analysis result (mean ADC vs position)
     analysis_cache = None
     if args.cache is not None:
-        analysis_cache = args.cache.with_name(f"{args.cache.stem}_analysis_ch{ch}.pkl")
+        analysis_cache = args.cache.with_name(f"{args.cache.stem}_analysis_integral_ch{ch}.pkl")
 
     loaded = False
     if (analysis_cache is not None and analysis_cache.exists() and not args.rebuild_ana
@@ -224,22 +231,47 @@ def main(args: list[str] | None = None):
     sigmas = {}
     for _, chdict in ch_mean_adc.items():
         for z, zdict in chdict.items():
-            xs = np.array(sorted(zdict), dtype=float)
-            ys = np.array([zdict[k] for k in sorted(zdict)], dtype=float)
+            keys = sorted(zdict)
+            xs = np.array(keys, dtype=float)
+            ys = np.array([zdict[k][0] for k in keys], dtype=float)
+            es = np.array([zdict[k][1] for k in keys], dtype=float)
+            valid = np.isfinite(ys)
+            xs, ys, es = xs[valid], ys[valid], es[valid]
             fig, ax = plt.subplots(1,1)
-            ax.plot(xs, ys, "o")
+            ax.errorbar(xs, ys, yerr=np.where(np.isfinite(es), es, 0), fmt="o")
             try:
+                if xs.size < 6:
+                    raise ValueError("too few points")
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", RuntimeWarning)
                     warnings.simplefilter("error", OptimizeWarning)
-                    A0 = ys[-1] - ys[0]
-                    mid = ys[0] + A0 / 2
-                    x0 = xs[np.argmin(np.abs(ys - mid))]
+                    # Errors for the weights, floor those that are missing or zero
+                    good = np.isfinite(es) & (es > 0)
+                    floor = np.median(es[good]) if good.any() else 1.0
+                    w_err = np.where(good, es, floor)
+
+                    # Plateaus from the ends of the scan
+                    n_p = max(2, xs.size // 5)
+                    low = np.median(ys[:n_p])
+                    high = np.median(ys[-n_p:])
+                    A0 = high - low
+                    x0 = xs[np.argmin(np.abs(ys - (low + high) / 2))]
                     s0 = max(np.ptp(xs) / 10, 1e-4)
-                    p0 = [A0, x0, s0, ys[0]]
+                    p0 = [A0, x0, s0, low]
                     lo = [-np.inf, xs.min(), 1e-4, -np.inf]
                     hi = [np.inf, xs.max(), np.ptp(xs), np.inf]
-                    popt, _ = curve_fit(edge, xs, ys, p0=p0, bounds=(lo, hi))
+                    popt, pcov = curve_fit(
+                        edge, xs, ys, p0=p0, bounds=(lo, hi),
+                        sigma=w_err, absolute_sigma=True, maxfev=10000)
+
+                    # Sanity of the fit
+                    chi2 = np.sum(((ys - edge(xs, *popt)) / w_err)**2) / (xs.size - 4)
+                    at_bound = (
+                        popt[2] < 1.01e-4 or popt[2] > 0.99 * np.ptp(xs)
+                        or popt[1] <= xs.min() or popt[1] >= xs.max())
+                    if not np.all(np.isfinite(pcov)) or at_bound or chi2 > MAX_REDUCED_CHI2:
+                        raise ValueError(f"rejected fit, chi2/ndf = {chi2:.1f}, params {popt}")
+
                     sigmas[z] = abs(popt[2])
                     xf = np.linspace(xs.min(), xs.max(), 200)
                     ax.plot(xf, edge(xf, *popt))
