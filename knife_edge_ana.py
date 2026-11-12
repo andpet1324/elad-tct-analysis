@@ -20,8 +20,8 @@ from get_delay import get_delay
 plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
 
 ALPHA = 1
-TIME_THRESHOLD = 18
-HIT_THRESHOLD = 18
+TIME_THRESHOLD = 20
+HIT_THRESHOLD = 20
 
 BINS = 100
 EMPTY_CHANNELS = [0, 63, 64, 127, 128, 191, 192, 256]
@@ -30,7 +30,7 @@ NOISE_THRESHOLD = 10
 CHMIN = 50
 CHMAX = 150
 
-PLOTCHANNEL = 10
+PLOTCHANNEL = 400
 
 DEFAULT_DELAY = 50
 DEFAULT_TIME_WINDOW = 5.0
@@ -164,6 +164,7 @@ def main(args: list[str] | None = None):
     path_pedestals = args.pedestal
     plotdir = isdir(args.plots)
     subdir = isdir(plotdir / "adcs")
+    edgedir = isdir(plotdir / "edge")
 
     # Build caches in chunks to not overload pc in memory
     # Allows to handle very large datasets
@@ -244,7 +245,7 @@ def main(args: list[str] | None = None):
                     ax.plot(xf, edge(xf, *popt))
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of edge failed with {err}")
-            fig.savefig(plotdir / f"knife_edge_z{z}.png", dpi=150)
+            fig.savefig(edgedir / f"knife_edge_z{z}.png", dpi=150)
             plt.close()
 
     zs = np.array(sorted(sigmas), dtype=float)

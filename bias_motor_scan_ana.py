@@ -35,6 +35,7 @@ PLOTCHANNEL = 0
 CHANNELS = [91,92,93,94,95,96,97,98]
 CH1CENTER = 6.785
 CH2CENTER = 6.845
+CHANNELS = [91,92,93,94,95,96,97,98]
 
 DEFAULT_DELAY = 50
 DEFAULT_TIME_WINDOW = 5.0
@@ -337,13 +338,15 @@ def main(args: list[str] | None = None):
         ze = np.array([p[1] for _, p in pts])
         sm = np.array([p[2] for _, p in pts])
         se = np.array([p[3] for _, p in pts])
+        z_mask = ze > 10
+        s_mask = se > 2
 
         ax_f[1].errorbar(
-            volts, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
+            volts[z_mask], zm[z_mask], yerr=ze[z_mask], fmt='o-', ms=4, capsize=3,
             color=ch_colors[ch]
         )
         ax_f[0].errorbar(
-            volts, 1000 * sm, yerr=1000 * se, fmt='o-', ms=4, capsize=3,
+            volts[s_mask], 1000 * sm[s_mask], yerr=1000 * se[s_mask], fmt='o-', ms=4, capsize=3,
             color=ch_colors[ch], label=f"Ch {ch}"
         )
     ax_f[0].legend()
