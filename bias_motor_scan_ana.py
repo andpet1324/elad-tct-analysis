@@ -320,10 +320,11 @@ def main(args: list[str] | None = None):
                             color=color, label=f"2nd order poly with min at {zmin:.3f} mm")
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of sigmas failed with {err}")
-        ax_zs.legend()
+        # ax_zs.legend()
         ax_zs.set_title(f"{voltage} V")
         ax_zs.set_xlabel("Position in z [mm]")
         ax_zs.set_ylabel("σ in x [µm]")
+        ax_zs.set_ylim(-10, 80)
         fig_zs.savefig(biasdir / "focus_scan.png", dpi=150)
         plt.close(fig_zs)
 

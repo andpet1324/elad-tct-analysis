@@ -27,8 +27,9 @@ BINS = 100
 EMPTY_CHANNELS = [0, 63, 64, 127, 128, 191, 192, 256]
 ALLOWANCE = 5
 NOISE_THRESHOLD = 10
-CHMIN = 50
-CHMAX = 150
+# Channels in between we sum the charge
+CHMIN = 80
+CHMAX = 100
 
 PLOTCHANNEL = 400
 
@@ -44,6 +45,12 @@ CH = 86
 PITCH = 0.055
 MAX_REDUCED_CHI2 = 10
 CHUNK_SIZE = 100
+
+# Min Max for z-scan
+# Good for removing outliers
+# Default is 0 - 50
+ZMIN = 30.5
+ZMAX = 32.5
 
 
 def gaussian(x, a, mean, stdev):
@@ -125,6 +132,8 @@ def analysis(
         del df_all
 
         for df in data:
+            if df["z"].iloc[0] < ZMIN or df["z"].iloc[0] > ZMAX:
+                continue
             df_id += 1
             progress_bar.update(1)
             # Current position
@@ -272,18 +281,20 @@ def main(args: list[str] | None = None):
                     if not np.all(np.isfinite(pcov)) or at_bound or chi2 > MAX_REDUCED_CHI2:
                         raise ValueError(f"rejected fit, chi2/ndf = {chi2:.1f}, params {popt}")
 
-                    sigmas[z] = abs(popt[2])
+                    sigmas[z] = (abs(popt[2]), abs(pcov[2][2]))
                     xf = np.linspace(xs.min(), xs.max(), 200)
                     ax.plot(xf, edge(xf, *popt))
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of edge failed with {err}")
+            ax.set_title(f"Edge scan with integral between points {CHMIN} - {CHMAX}")
             fig.savefig(edgedir / f"knife_edge_z{z}.png", dpi=150)
             plt.close()
 
     zs = np.array(sorted(sigmas), dtype=float)
-    sig = np.array([sigmas[z] for z in sorted(sigmas)], dtype=float)
+    sig = np.array([sigmas[z][0] for z in sorted(sigmas)], dtype=float)
+    err = np.array([sigmas[z][1] for z in sorted(sigmas)], dtype=float)
     fig, ax_zs = plt.subplots(1,1)
-    ax_zs.plot(zs, 1000 * sig, "o")
+    ax_zs.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o")
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", RuntimeWarning)
@@ -292,11 +303,15 @@ def main(args: list[str] | None = None):
             residuals = sig - np.polyval(coefs, zs)
             mad = np.median(np.abs(residuals - np.median(residuals)))
             mask = np.abs(residuals) < 3 * 1.4826 * mad
-            coefs, cov = np.polyfit(zs[mask], sig[mask], 2, cov=True)
+            coefs, _ = np.polyfit(zs[mask], sig[mask], 2, cov=True)
             x = np.linspace(min(zs), max(zs), 100)
-            ax_zs.plot(x, 1000 * np.polyval(coefs, x))
+            yfit = np.polyval(coefs, x)
+            ax_zs.plot(x, 1000 * yfit, label = rf"2nd order poly fit with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
         print(f"Fit of sigmas failed with {err}")
+    ax_zs.set_xlabel("Position in z [mm]")
+    ax_zs.set_ylabel(rf"Edge fit $\sigma$ [µm]")
+    ax_zs.set_title("Knife-edge scan")
     fig.savefig(plotdir / "sigma_vs_z.png", dpi=150)
     plt.close()
 
