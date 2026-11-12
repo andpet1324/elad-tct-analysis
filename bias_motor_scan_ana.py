@@ -7,6 +7,7 @@ import warnings
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker as tck
 import pathlib
 import pickle
 import itertools
@@ -41,6 +42,12 @@ DEFAULT_TIME_WINDOW = 5.0
 
 PITCH = 0.055
 CHUNK_SIZE = 100
+
+# Min Max for z-scan
+# Good for removing outliers
+# Default is 0 - 50
+ZMIN = 31.0
+ZMAX = 32.5
 
 
 def gaussian(x, a, mean, stdev):
@@ -127,8 +134,8 @@ def analysis(
         del df_all
 
         for df in data:
-            # if df["z"].iloc[0] < 32.5 or df["z"].iloc[0] > 100:
-            #     continue
+            if df["z"].iloc[0] < ZMIN or df["z"].iloc[0] > ZMAX:
+                continue
             # Get the bias
             bias = df["voltage"].iloc[0]
             if bias not in voltages:
@@ -391,6 +398,14 @@ def main(args: list[str] | None = None):
         ax_zs.set_ylabel("σ in x [µm]")
         fig_zs.savefig(biasdir / "focus_scan.png", dpi=150)
 
+        ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())    
+        # ax_adc.legend()
+        ax_adc.set_title(f"{voltage} V")
+        ax_adc.set_xlabel("Position in x [mm]")
+        ax_adc.set_ylabel("Mean ADC")
+        ax_adc.set_xlim(CH1CENTER - 0.1, CH2CENTER + 0.1)
+        fig_adc.savefig(plotdir / "two_channels_mean_adc.png", dpi=150)
+
         # Avg hits
         fig_avg_hits, ax_avg_hits = plt.subplots(1,1)
         for z, zf in mean_channel_hits[voltage].items():
@@ -403,6 +418,7 @@ def main(args: list[str] | None = None):
         ax_avg_hits.set_ylabel("Hit average [channel]")
         ax_avg_hits.grid(True)
         fig_avg_hits.savefig(biasdir / "avg_hits.png", dpi=150)
+        plt.close()
 
     fig_f, ax_f = plt.subplots(2,1, sharex=True)
 
@@ -416,24 +432,23 @@ def main(args: list[str] | None = None):
         sm = np.array([p[2] for _, p in pts])
         se = np.array([p[3] for _, p in pts])
 
-        ax_f[0].errorbar(
-            volts, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
-            color=f"C{i}", label=rf"$z_{{\mathrm{{min}}}}$"
-        )
         ax_f[1].errorbar(
+            volts, zm, yerr=ze, fmt='o-', ms=4, capsize=3,
+            color=f"C{i}"
+        )
+        ax_f[0].errorbar(
             volts, 1000 * sm, yerr=1000 * se, fmt='o-', ms=4, capsize=3,
-            color=f"C{i}", label=rf"$\sigma_{{\mathrm{{min}}}}$"
+            color=f"C{i}"
         )
     ax_f[0].set_title(f"Ch {ch1}")
-    ax_f[0].set_ylabel("Min focus z [mm]")
-    ax_f[1].set_ylabel(r"Min focus $\sigma$ [µm]")
+    ax_f[1].set_ylabel("$z_{{\mathrm{{min}}}}$ [mm]")
+    ax_f[0].set_ylabel(rf"$\sigma_{{\mathrm{{min}}}}$ [µm]")
     ax_f[1].set_xlabel("Bias voltage [V]")
 
-    ax_f[0].grid(True)
-    ax_f[0].legend()
     ax_f[1].grid(True)
-    ax_f[1].legend()
+    ax_f[0].grid(True)
 
+    fig_f.align_ylabels()
     fig_f.savefig(plotdir / "focus_vs_voltage.png", dpi=150)
 
 
