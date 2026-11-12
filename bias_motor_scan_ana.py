@@ -32,10 +32,9 @@ CHMIN = 80
 CHMAX = 110
 
 PLOTCHANNEL = 0
-CHANNELS = [91,92,93,94,95,96,97,98]
 CH1CENTER = 6.785
 CH2CENTER = 6.845
-CHANNELS = [91,92,93,94,95,96,97,98]
+CHANNELS = [ch for ch in range(87,100)]
 
 DEFAULT_DELAY = 50
 DEFAULT_TIME_WINDOW = 5.0
@@ -339,8 +338,8 @@ def main(args: list[str] | None = None):
         ze = np.array([p[1] for _, p in pts])
         sm = np.array([p[2] for _, p in pts])
         se = np.array([p[3] for _, p in pts])
-        z_mask = ze > 10
-        s_mask = se > 2
+        z_mask = ze < 1
+        s_mask = se < 20 / 1000
 
         ax_f[1].errorbar(
             volts[z_mask], zm[z_mask], yerr=ze[z_mask], fmt='o-', ms=4, capsize=3,
@@ -350,7 +349,7 @@ def main(args: list[str] | None = None):
             volts[s_mask], 1000 * sm[s_mask], yerr=1000 * se[s_mask], fmt='o-', ms=4, capsize=3,
             color=ch_colors[ch], label=f"Ch {ch}"
         )
-    ax_f[0].legend()
+    # ax_f[0].legend(loc="upper right", ncols=3, framealpha=0.8)
     ax_f[1].set_ylabel("$z_{{\mathrm{{min}}}}$ [mm]")
     ax_f[0].set_ylabel(rf"$\sigma_{{\mathrm{{min}}}}$ [µm]")
     ax_f[1].set_xlabel("Bias voltage [V]")

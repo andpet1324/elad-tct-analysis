@@ -20,8 +20,8 @@ from get_delay import get_delay
 plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
 
 ALPHA = 1
-TIME_THRESHOLD = 20
-HIT_THRESHOLD = 20
+TIME_THRESHOLD = 15
+HIT_THRESHOLD = 15
 
 BINS = 100
 EMPTY_CHANNELS = [0, 63, 64, 127, 128, 191, 192, 256]
@@ -31,7 +31,7 @@ NOISE_THRESHOLD = 10
 CHMIN = 80
 CHMAX = 100
 
-PLOTCHANNEL = 400
+PLOTCHANNEL = 10
 
 DEFAULT_DELAY = 50
 DEFAULT_TIME_WINDOW = 5.0
@@ -286,7 +286,9 @@ def main(args: list[str] | None = None):
                     ax.plot(xf, edge(xf, *popt))
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of edge failed with {err}")
-            ax.set_title(f"Edge scan with integral between points {CHMIN} - {CHMAX}")
+            ax.set_title(f"Edge scan channels {CHMIN} - {CHMAX}, at z = {z:.2f} mm")
+            ax.set_xlabel("Position in x [mm]")
+            ax.set_ylabel("Mean ADC sum over channels")
             fig.savefig(edgedir / f"knife_edge_z{z}.png", dpi=150)
             plt.close()
 

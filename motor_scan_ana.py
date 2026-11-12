@@ -32,7 +32,7 @@ NOISE_THRESHOLD = 10
 CHMIN = 80
 CHMAX = 110
 
-PLOTCHANNEL = 0
+PLOTCHANNEL = 10
 CH1 = 96
 CH2 = 97
 CH1CENTER = 6.785
@@ -154,13 +154,12 @@ def analysis(
                 plt.close(fig)
                 count_plots += 1
 
-            # Append mean signal for select channels
-            ch1_adc = df[df["channel"] == ch1]
-            ch2_adc = df[df["channel"] == ch2]
-            if z not in ch_adc:
-                ch_adc.setdefault(z, {ch1: {}, ch2: {}})
-            ch_adc[z][ch1][x] = ch1_adc["signal"].mean()
-            ch_adc[z][ch2][x] = ch2_adc["signal"].mean()
+            # Append mean signal for channels in range
+            for ch in range(CHMIN, CHMAX+1):
+                ch_mask = df[df["channel"] == ch]
+                if z not in ch_adc:
+                    ch_adc.setdefault(z, {})
+                ch_adc[z][ch][x] = df[ch_mask]["signal"].mean()
 
             # Extract hits
             hit_df = df[df["signal"].abs() > HIT_THRESHOLD]
@@ -235,6 +234,7 @@ def main(args: list[str] | None = None):
     results = [{}, {}, {}, {}, []]
     delay = None
     sigma_t = None
+    chrange = range(CHMIN, CHMAX+1)
 
     # Cache of the analysis result
     analysis_cache = None
@@ -273,7 +273,7 @@ def main(args: list[str] | None = None):
     ch_adc, mean_channel_hits, ch_counts, clusters, hits_list = results
 
     # Here I assume the voltage is constant for the whole dataset
-    # Would not work with a bias scan
+    # Would not work with a bias scan. For that use bias_motor_scan_ana
     with open(paths[0]) as f:
         voltage = json.loads(f.readline().lstrip("# "))["voltage"]
 
@@ -289,12 +289,12 @@ def main(args: list[str] | None = None):
     fig_adc, ax_adc = plt.subplots(1,1)
     fig_zs, ax_zs = plt.subplots(1,1)
     zs = []
-    sigmas = {ch1: [], ch2: []}
+    sigmas = {ch: [] for ch in chrange}
     eta_means = {}
     for z, zf in ch_adc.items():
         fit_sigma = {}
         fit_popt = {}
-        mean_adcs = {z: {ch1: [], ch2: []}}
+        mean_adcs = {z: {ch: [] for ch in chrange}}
         for ch_id, ch_df in zf.items():
             # Plot mean signal vs x [mm]
             # ax_adc.plot(ch_df.keys(), ch_df.values(), label=f"z = {z:.2f}")
@@ -325,7 +325,7 @@ def main(args: list[str] | None = None):
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit failed with {err}")
                 continue
-        for i, ch in enumerate([ch1, ch2]):
+        for i, ch in enumerate(chrange):
             for l in mean_adcs[z][ch]:
                 ax_adc.plot(x, l, color=f"C{i}", label=f"Ch {ch}")
                 if ch in fit_popt:
@@ -335,9 +335,9 @@ def main(args: list[str] | None = None):
                     ax_adc.plot(xf, sign * box_gaussian(xf, *popt), "--", color=f"C{i}",
                                 label=fr"Fit: $w$={popt[2]*1e3:.1f} µm, $\sigma$={popt[3]*1e3:.1f} µm")
         # Avoid cases where one channel had a bad fit
-        if len(fit_sigma) == 2:
+        if len(fit_sigma) == len(chrange):
             zs.append(z)
-            for ch in (ch1, ch2):
+            for ch in chrange:
                 sigmas[ch].append(fit_sigma[ch])
 
     # ETA function
@@ -358,7 +358,7 @@ def main(args: list[str] | None = None):
     ax_eta.set_xlim(CH1CENTER - PITCH, CH2CENTER + PITCH)
     fig_eta.savefig(plotdir / "eta_scan.png", dpi=150)
     
-    for ch in [ch1,ch2]:
+    for ch in chrange:
         color = next(colors)
         try:
             with warnings.catch_warnings():
