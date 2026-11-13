@@ -31,10 +31,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 from load_data import load_chunk
 from get_delay import get_delay
+from progress import Steps
 from cleaning import Context, pipeline_steps, run_pipeline
 
 
@@ -174,15 +174,9 @@ class BaseAnalysis(ABC):
 
     def cache_data(self) -> None:
         """Build the parsed data caches chunk by chunk to not overload the memory"""
-        if self.args.cache is None:
-            return
-        data_progress_bar = tqdm(
-            total=len(self.paths), desc="Caching data", colour="yellow",
-            bar_format="[{elapsed}<{remaining}] {n_fmt}/{total_fmt} | {l_bar}{bar} {rate_fmt}{postfix}",
-            leave=False)
         for k in range(self.n_chunks):
-            tqdm.write(f"Caching chunk {k} / {self.n_chunks - 1}")
-            load_chunk(self.paths, data_progress_bar, self.args.cache, k, self.cfg.chunk_size, self.args.rebuild_data)
+            load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size, self.args.rebuild_data,
+                       on_file=self.steps.advance)
 
     # ---------------- Data access ----------------
     def iter_runs(self) -> Iterator[tuple[int, pd.DataFrame]]:
@@ -207,7 +201,7 @@ class BaseAnalysis(ABC):
 
     def find_delay(self) -> None:
         """Find the time delay and window from the first run that has a signal"""
-        tqdm.write("Getting delay parameter...")
+        print("Getting delay parameter...")
         for df_id, df in self.iter_runs():
             df = self.clean(df, df_id, selections=False)
             if df is None:
@@ -216,21 +210,18 @@ class BaseAnalysis(ABC):
             if d is None or st is None:
                 continue
             self.ctx.delay, self.ctx.sigma_t = np.abs(d), np.abs(st)
-            tqdm.write(f"Delay = {self.ctx.delay} and sigma_t = {self.ctx.sigma_t}")
+            print(f"Delay = {self.ctx.delay} and sigma_t = {self.ctx.sigma_t}")
             return
-        tqdm.write("No delay parameter found! Likely there is no signal...")
+        print("No delay parameter found! Likely there is no signal...")
         self.ctx.delay = self.cfg.default_delay
         self.ctx.sigma_t = self.cfg.default_time_window
 
     # ---------------- Analysis ----------------
     def analyze(self) -> None:
         self.find_delay()
-        ana_progress_bar = tqdm(
-            total=len(self.paths), desc="Processing data", colour="green",
-            bar_format="[{elapsed}<{remaining}] {n_fmt}/{total_fmt} | {l_bar}{bar} {rate_fmt}{postfix}",
-            leave=False)
+        self.steps.start("Analyze", total=len(self.paths))
         for df_id, df in self.iter_runs():
-            ana_progress_bar.update(1)
+            self.steps.advance()
             if not self.select_run(df):
                 continue
             z = df["z"].iloc[0]
@@ -240,7 +231,6 @@ class BaseAnalysis(ABC):
                 self.on_empty(df_id, z, x)
                 continue
             self.process(df, df_id, z, x)
-        ana_progress_bar.close()
         self.results = pd.concat(self._frames, ignore_index=True)
 
     # ---------------- Result cache ----------------
@@ -266,7 +256,7 @@ class BaseAnalysis(ABC):
             print(f"Reading analysis cache failed with {err}")
             self.results = pd.DataFrame()
             return False
-        tqdm.write(f"Loaded analysis cache {path}")
+        print(f"Loaded analysis cache {path}")
         return True
 
     def save_results(self) -> None:
@@ -276,24 +266,24 @@ class BaseAnalysis(ABC):
         try:
             with open(path, "wb") as f:
                 pickle.dump(self.results, f)
-            tqdm.write(f"Wrote analysis cache {path}")
+            print(f"Wrote analysis cache {path}")
         except Exception as err:
             print(f"Writing analysis cache failed with {err}")
 
     # ---------------- Entry point ----------------
     def run(self) -> None:
-        main_progress_bar = tqdm(
-            total=3, desc="TCT Analysis", colour="yellow",
-            bar_format="[{elapsed}<{remaining}] {n_fmt}/{total_fmt} | {l_bar}{bar} {rate_fmt}{postfix}")
-        self.cache_data()
-        self.pedestals = pd.read_csv(self.args.pedestal, header=1)
-        self.ctx = Context(cfg=self.cfg, pedestals=self.pedestals,
-                           fast_common_mode=self.args.fast_common_mode)
+        with Steps(["Load data", "Analyze", "Plot"]) as self.steps:
+            self.steps.start("Load data", total=len(self.paths))
+            if self.args.cache is not None:
+                self.cache_data()
+            self.pedestals = pd.read_csv(self.args.pedestal, header=1)
+            self.ctx = Context(cfg=self.cfg, pedestals=self.pedestals,
+                               fast_common_mode=self.args.fast_common_mode)
 
-        print("Analyzing...")
-        if not self.load_results():
-            self.analyze()
-            self.save_results()
+            self.steps.start("Analyze", total=None)
+            if not self.load_results():
+                self.analyze()
+                self.save_results()
 
-        print("Plotting...")
-        self.plot()
+            self.steps.start("Plot", total=None)
+            self.plot()
