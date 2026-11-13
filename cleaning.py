@@ -16,7 +16,8 @@ Add your own step:
 """
 
 import pathlib
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import pandas as pd
@@ -36,6 +37,7 @@ class Context:
     sigma_t: float | None = None
     df_id: int = -1
     subdir: pathlib.Path | None = None
+    timings: dict[str, float] = field(default_factory=dict)   # seconds spent per step
 
 
 STEPS: dict[str, Callable] = {}
@@ -98,7 +100,9 @@ def run_pipeline(df: pd.DataFrame, ctx: Context, steps: list[Callable]) -> pd.Da
     if plot:
         adc_vs_channel(df, ctx.subdir / "0_raw.png", "Raw data", column="adc")
     for i, func in enumerate(steps, start=1):
+        t0 = time.perf_counter()
         df = func(df, ctx)
+        ctx.timings[func.__name__] = ctx.timings.get(func.__name__, 0) + time.perf_counter() - t0
         if df is None or df.empty:
             tqdm.write(f"Df {ctx.df_id} is empty after {func.__name__}!")
             return None

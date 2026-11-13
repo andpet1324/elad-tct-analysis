@@ -10,13 +10,15 @@ import pyarrow.compute as pc
 def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = False, on_file=None) -> pd.DataFrame:
     """on_file(n) is called when n more files are done, for a progress bar"""
     on_file = on_file or (lambda n: None)
-    if (cache is not None and cache.exists() and not rebuild
-            and cache.stat().st_mtime > max(p.stat().st_mtime for p in paths)):
-        tqdm.write(f"Loading cache {cache}")
-        on_file(len(paths))
-        return pd.read_parquet(
-            cache,
-            dtype_backend="pyarrow")
+    if cache is not None and cache.exists() and not rebuild:
+        newest = max(paths, key=lambda p: p.stat().st_mtime)
+        if cache.stat().st_mtime > newest.stat().st_mtime:
+            tqdm.write(f"Loading cache {cache}")
+            on_file(len(paths))
+            return pd.read_parquet(
+                cache,
+                dtype_backend="pyarrow")
+        tqdm.write(f"Cache {cache.name} is older than {newest.name}, rebuilding")
 
     # We need pyarrow for these large datasets in pandas
     # When we have like 500+ files I think
@@ -46,7 +48,9 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
 
     if cache is not None:
         try:
-            pq.write_table(table, cache)
+            tmp = cache.with_name(cache.name + ".tmp")   # so an interrupted write never looks like a cache
+            pq.write_table(table, tmp)
+            tmp.replace(cache)
             tqdm.write(f"Wrote cache {cache}")
         except Exception as err:
             print(f"Writing cache failed with {err}")

@@ -21,6 +21,8 @@ See adc_vs_channel_ana.py for a minimal example.
 import argparse
 import pathlib
 import pickle
+import time
+from contextlib import contextmanager
 import tomllib
 from abc import ABC, abstractmethod
 from types import SimpleNamespace
@@ -36,6 +38,9 @@ from load_data import load_chunk
 from get_delay import get_delay
 from progress import Steps
 from cleaning import Context, pipeline_steps, run_pipeline
+
+
+LOAD, ANALYZE, PLOT = "Loading data", "Analyzing", "Plotting"
 
 
 def isdir(dir: pathlib.Path) -> pathlib.Path:
@@ -156,6 +161,7 @@ class BaseAnalysis(ABC):
                             help="Cache file (.parquet) for the parsed data")
         parser.add_argument("--rebuild-data", action="store_true", help="Rewrite the data caches")
         parser.add_argument("--rebuild-ana", action="store_true", help="Rewrite the analysis cache")
+        parser.add_argument("--profile", action="store_true", help="Print where the time went")
         parser.add_argument("--fast-common-mode", action="store_true",
                             help="Fast and weak method of subtracting the common mode")
         self.add_arguments(parser)
@@ -179,12 +185,19 @@ class BaseAnalysis(ABC):
                        on_file=self.steps.advance)
 
     # ---------------- Data access ----------------
+    @contextmanager
+    def timed(self, name: str):
+        t0 = time.perf_counter()
+        yield
+        self.ctx.timings[name] = self.ctx.timings.get(name, 0) + time.perf_counter() - t0
+
     def iter_runs(self) -> Iterator[tuple[int, pd.DataFrame]]:
         """Yield (df_id, raw df) for every run, loading one chunk at a time"""
         df_id = -1
         for k in range(self.n_chunks):
-            df_all = load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size)
-            runs = [g for _, g in df_all.groupby("run_id")]
+            with self.timed("load chunk"):
+                df_all = load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size)
+                runs = [g for _, g in df_all.groupby("run_id")]
             del df_all
             for df in runs:
                 df_id += 1
@@ -230,7 +243,8 @@ class BaseAnalysis(ABC):
             if df is None:
                 self.on_empty(df_id, z, x)
                 continue
-            self.process(df, df_id, z, x)
+            with self.timed("process"):
+                self.process(df, df_id, z, x)
         self.results = pd.concat(self._frames, ignore_index=True)
 
     # ---------------- Result cache ----------------
@@ -242,10 +256,14 @@ class BaseAnalysis(ABC):
 
     def load_results(self) -> bool:
         path = self.analysis_cache_path()
-        if path is None or not path.exists() or self.args.rebuild_ana:
+        if path is None:
             return False
         inputs = [*self.paths, self.args.pedestal] + ([self.args.config] if self.args.config else [])
-        if path.stat().st_mtime <= max(p.stat().st_mtime for p in inputs):
+        newest = max(inputs, key=lambda p: p.stat().st_mtime)
+        why = ("does not exist" if not path.exists() else "--rebuild-ana was given" if self.args.rebuild_ana
+               else f"older than {newest}" if path.stat().st_mtime <= newest.stat().st_mtime else "")
+        if why:
+            print(f"Analysis cache {path.name} not used: {why}")
             return False
         try:
             with open(path, "rb") as f:
@@ -272,18 +290,24 @@ class BaseAnalysis(ABC):
 
     # ---------------- Entry point ----------------
     def run(self) -> None:
-        with Steps(["Loading data", "Analyzing", "Plotting"]) as self.steps:
-            self.steps.start("Load data", total=len(self.paths))
-            if self.args.cache is not None:
-                self.cache_data()
+        with Steps([LOAD, ANALYZE, PLOT]) as self.steps:
+            self.steps.start(LOAD, total=len(self.paths))
             self.pedestals = pd.read_csv(self.args.pedestal, header=1)
             self.ctx = Context(cfg=self.cfg, pedestals=self.pedestals,
                                fast_common_mode=self.args.fast_common_mode)
 
-            self.steps.start("Analyze", total=None)
-            if not self.load_results():
+            # A valid analysis cache means the data is not touched at all
+            cached = self.load_results()
+            if not cached and self.args.cache is not None:
+                self.cache_data()
+
+            self.steps.start(ANALYZE, total=None)
+            if not cached:
                 self.analyze()
                 self.save_results()
+                if self.args.profile:
+                    for name, sec in sorted(self.ctx.timings.items(), key=lambda kv: -kv[1]):
+                        print(f"{name:20s}{sec:9.1f} s")
 
-            self.steps.start("Plot", total=None)
+            self.steps.start(PLOT, total=None)
             self.plot()
