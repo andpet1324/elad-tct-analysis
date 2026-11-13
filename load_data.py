@@ -7,10 +7,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
 
-def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = False) -> pd.DataFrame:
+def load_data(paths, dpb: tqdm, cache: pathlib.Path | None, chunk: int, rebuild: bool = False) -> pd.DataFrame:
     if (cache is not None and cache.exists() and not rebuild
             and cache.stat().st_mtime > max(p.stat().st_mtime for p in paths)):
         tqdm.write(f"Loading cache {cache}")
+        dpb.update(len(paths))
         return pd.read_parquet(
             cache,
             dtype_backend="pyarrow")
@@ -19,7 +20,7 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
     # When we have like 500+ files I think
     tables = []
     for i, path in enumerate(paths):
-        print(f"File {i} / {len(paths) - 1} in chunk {chunk}")
+        dpb.update(1)
         with open(path) as f:
             meta = json.loads(f.readline().lstrip("# "))
         meta.pop("channels", None)
@@ -44,7 +45,7 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
     if cache is not None:
         try:
             pq.write_table(table, cache)
-            print(f"Wrote cache {cache}")
+            tqdm.write(f"Wrote cache {cache}")
         except Exception as err:
             print(f"Writing cache failed with {err}")
 
@@ -53,14 +54,14 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
     return df
 
 
-def load_chunk(paths, cache: pathlib.Path | None, k: int, CHUNK_SIZE: int, rebuild: bool = False) -> pd.DataFrame:
+def load_chunk(paths, dpb: tqdm, cache: pathlib.Path | None, k: int, CHUNK_SIZE: int, rebuild: bool = False) -> pd.DataFrame:
     """Loads files k*100 ... (k+1)*100 - 1, with their own numbered cache."""
     paths = sorted(paths)
     chunk = paths[k * CHUNK_SIZE:(k + 1) * CHUNK_SIZE]
     chunk_cache = None
     if cache is not None:
         chunk_cache = cache.with_name(f"{cache.stem}_{k:03d}{cache.suffix}")
-    return load_data(chunk, chunk_cache, k, rebuild)
+    return load_data(chunk, dpb, chunk_cache, k, rebuild)
 
 
 def isdir(dir):
