@@ -1,5 +1,5 @@
 """
-Example analysis: mean cleaned ADC against channel, over all runs.
+Scans all selected channels and plots the .
 
     python3 adc_vs_channel_ana.py data/*.txt -ped pedestals.csv \
         -plots plots/ -c config_example.toml -cache cache/run.parquet

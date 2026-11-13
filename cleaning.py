@@ -6,7 +6,7 @@ delay (time_cut) or throw data away (channel_cut), so the delay search
 skips them, same as no_selections in clean_df.
 
 The order and which steps run is set by `pipeline` in the config file,
-e.g. pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "hit"]
+e.g. pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut"]
 
 Add your own step:
 
@@ -24,7 +24,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from clean_df import common_mode_subtraction, remove_empty_channels
-from plot_helpers import adc_vs_channel
+from plot_helpers import col_vs_channel
 
 
 @dataclass
@@ -79,13 +79,6 @@ def channel_cut(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
     return df[(df["channel"] > ctx.cfg.chmin) & (df["channel"] < ctx.cfg.chmax)]
 
 
-@step()
-def hit(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
-    """Flag the entries whose |adc_clean| is above hit_threshold"""
-    df["hit"] = df["adc_clean"].abs() > ctx.cfg.hit_threshold
-    return df
-
-
 def pipeline_steps(names: list[str], selections: bool = True) -> list[Callable]:
     """Look up the steps by name. selections=False drops the ones that need the delay"""
     unknown = [n for n in names if n not in STEPS]
@@ -98,7 +91,7 @@ def run_pipeline(df: pd.DataFrame, ctx: Context, steps: list[Callable]) -> pd.Da
     """Run the steps in order. Returns None as soon as one of them leaves nothing."""
     plot = ctx.df_id == ctx.cfg.plot_run and ctx.subdir is not None
     if plot:
-        adc_vs_channel(df, ctx.subdir / "0_raw.png", "Raw data", column="adc")
+        col_vs_channel(df, ctx.subdir / "0_raw.png", "Raw data", column="adc")
     for i, func in enumerate(steps, start=1):
         t0 = time.perf_counter()
         df = func(df, ctx)
@@ -107,5 +100,6 @@ def run_pipeline(df: pd.DataFrame, ctx: Context, steps: list[Callable]) -> pd.Da
             tqdm.write(f"Df {ctx.df_id} is empty after {func.__name__}!")
             return None
         if plot:
-            adc_vs_channel(df, ctx.subdir / f"{i}_{func.__name__}.png", func.__name__)
+            col_vs_channel(df, ctx.subdir / f"{i}_{func.__name__}.png", 
+                           func.__name__, col="" col_label="ADC")
     return df

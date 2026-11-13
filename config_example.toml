@@ -2,7 +2,7 @@
 # Unknown keys are an error.
 
 # Cleaning steps in order, see cleaning.py
-pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut", "hit"]
+pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"]
 
 empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
 allowance = 5
@@ -18,9 +18,11 @@ hit_threshold = 20
 time_threshold = 18
 default_delay = 50
 default_time_window = 5.0
+# Just uses default values
+use_default_delay = "False"
 
 # Make a plot after each cleaning step for this run
-plot_run = 0
+plot_run = 30
 
 chunk_size = 100
 
@@ -28,4 +30,4 @@ chunk_size = 100
 # zmin = 31.0
 # zmax = 32.5
 
-# style = "/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle"
+style = "/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle"
