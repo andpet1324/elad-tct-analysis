@@ -272,7 +272,7 @@ class BaseAnalysis(ABC):
 
     # ---------------- Entry point ----------------
     def run(self) -> None:
-        with Steps(["Load data", "Analyze", "Plot"]) as self.steps:
+        with Steps(["Loading data", "Analyzing", "Plotting"]) as self.steps:
             self.steps.start("Load data", total=len(self.paths))
             if self.args.cache is not None:
                 self.cache_data()
