@@ -61,15 +61,31 @@ class AdcVsChannel(BaseAnalysis):
 
         # HITS PER X POSITION
         d = self.get(CHANNEL_HITS)
-        # Average over the files (positions) for each channel
-        by_x = d.groupby("x")["value"].agg(["mean", "sem"])
+        # Rows are x, columns are channels, mean over files at the same x (e.g. several z)
+        hits = d.astype({"x": float, "channel": float, "value": float}).pivot_table(
+            index="x", columns="channel", values="value", aggfunc="mean")
+        active = hits.columns[hits.sum() > 0.05 * hits.sum().max()]   # channels with real hits
 
         fig, ax = plt.subplots(1, 1)
-        ax.errorbar(by_x.index, by_x["mean"], yerr=by_x["sem"], fmt="o", ms=3)
+        for ch in active:
+            ax.plot(hits.index, hits[ch], "-o", ms=2, label=f"Ch {int(ch)}")
+        ax.plot(hits.index, hits.sum(axis=1), "k--", lw=1, label="Sum")
+        ax.legend()
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("Hits")
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
         fig.savefig(self.plotdir / "hits_vs_x.png", dpi=150)
+        plt.close(fig)
+
+        # All channels at once
+        fig, ax = plt.subplots(1, 1)
+        mesh = ax.pcolormesh(hits.index, hits.columns, hits.T.to_numpy(), shading="nearest")
+        fig.colorbar(mesh, label="Hits")
+        ax.set_xlabel("Position in x [mm]")
+        ax.set_ylabel("Channel")
+        ax.set_ylim(active.min() - 3, active.max() + 3)   # skip the empty channels
+        ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
+        fig.savefig(self.plotdir / "hits_map.png", dpi=150)
         plt.close(fig)
 
 
