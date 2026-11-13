@@ -161,8 +161,8 @@ def analysis(
                 fig, ax = plt.subplots(1,1)
                 df = df.sort_values(["run", "channel"], ascending=[True,True])
                 ax.errorbar(
-                    df["channel"], df.groupby("channel")["signal"].transform("mean"), 
-                    yerr=df["signal"].std(), ls="",
+                    df["channel"], df.groupby("channel")["adc_clean"].transform("mean"), 
+                    yerr=df["adc_clean"].std(), ls="",
                     marker="o", ms=4)
                 ax.set_title(f"{HIT_THRESHOLD} ADC hit threshold, z = {z:.3f}, x = {x:.3f}")
                 ax.set_xlabel("Channel")
@@ -174,7 +174,7 @@ def analysis(
             # Append mean signal for select channels
             ch_adc.setdefault(bias, {}).setdefault(z, {ch: {} for ch in channels})
             for ch in channels:
-                ch_adc[bias][z][ch][x] = df[df["channel"] == ch]["signal"].mean()
+                ch_adc[bias][z][ch][x] = df[df["channel"] == ch]["adc_clean"].mean()
 
         del data
 

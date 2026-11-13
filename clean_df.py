@@ -21,8 +21,8 @@ def common_mode_subtraction(df: pd.DataFrame, fast: bool = False) -> pd.DataFram
     """
     if fast: # Skips gaussian fit and goes straight for median
         df["chip"] = df["channel"] // 128
-        df["shift"] = df.groupby(["run", "chip"])["signal"].transform("median")
-        df["signal"] = df["signal"] - df["shift"]
+        df["shift"] = df.groupby(["run", "chip"])["adc_clean"].transform("median")
+        df["adc_clean"] = df["adc_clean"] - df["shift"]
         return df
     
     runs = df.groupby("run")
@@ -31,7 +31,7 @@ def common_mode_subtraction(df: pd.DataFrame, fast: bool = False) -> pd.DataFram
         # fit the adc distribution and take mean as baseline value
         for chip in [0,1]:
             ch_mask = (run_df["channel"] >= 128 * chip) & (run_df["channel"] < 128 * (1+chip))
-            adc = run_df.loc[ch_mask, "signal"].to_numpy() # make into float64 for better accuracy?
+            adc = run_df.loc[ch_mask, "adc_clean"].to_numpy() # make into float64 for better accuracy?
             med = np.median(adc) # take median to minimize outlier affecting the fit
             sigma = 1.4826 * np.median(np.abs(adc - med))
             counts, edges = np.histogram(
@@ -51,7 +51,7 @@ def common_mode_subtraction(df: pd.DataFrame, fast: bool = False) -> pd.DataFram
     df["shift"] = np.where(df["chip"] == 0,
                     df["run"].map(shifts[0]),
                     df["run"].map(shifts[1]))
-    df["signal"] = df["signal"] - df["shift"]
+    df["adc_clean"] = df["adc_clean"] - df["shift"]
     return df
 
 
@@ -121,16 +121,16 @@ def clean_df(
 
         # Subtract pedestals
         df = df.merge(pedestals[["channel", "pedestals"]], on="channel", how="left")
-        df["signal"] = df["adc"] - df["pedestals"]
+        df["adc_clean"] = df["adc"] - df["pedestals"]
         if df.empty:
             tqdm.write(f"Df {df_id} is empty after pedestal subtraction!")
             return None
         
-        df["noise"] = df.groupby("channel")["signal"].transform("std")
+        df["noise"] = df.groupby("channel")["adc_clean"].transform("std")
 
         if df_id == PLOTCHANNEL:
             figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-            axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
+            axc[0].plot(df["channel"], df["adc_clean"], 'o', ms=2)
             axc[1].plot(df["channel"], df["noise"], '-')
             axc[0].set_ylabel("ADC")
             axc[1].set_ylabel("Noise")
@@ -146,7 +146,7 @@ def clean_df(
 
         if df_id == PLOTCHANNEL:
             figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-            axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
+            axc[0].plot(df["channel"], df["adc_clean"], 'o', ms=2)
             axc[1].plot(df["channel"], df["noise"], '-')
             axc[0].set_ylabel("ADC")
             axc[1].set_ylabel("Noise")
@@ -159,11 +159,11 @@ def clean_df(
         # Subtract common mode
         df = common_mode_subtraction(df, fastCM)
         # Important to recalculate noise after correction
-        df["noise"] = df.groupby("channel")["signal"].transform("std")
+        df["noise"] = df.groupby("channel")["adc_clean"].transform("std")
 
         if df_id == PLOTCHANNEL:
             figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-            axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
+            axc[0].plot(df["channel"], df["adc_clean"], 'o', ms=2)
             axc[1].plot(df["channel"], df["noise"], '-')
             axc[0].set_ylabel("ADC")
             axc[1].set_ylabel("Noise")
@@ -184,7 +184,7 @@ def clean_df(
 
         if df_id == PLOTCHANNEL:
             figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-            axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
+            axc[0].plot(df["channel"], df["adc_clean"], 'o', ms=2)
             axc[1].plot(df["channel"], df["noise"], '-')
             axc[0].set_ylabel("ADC")
             axc[1].set_ylabel("Noise")
@@ -205,7 +205,7 @@ def clean_df(
 
         if df_id == PLOTCHANNEL:
             figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})
-            axc[0].plot(df["channel"], df["signal"], 'o', ms=2)
+            axc[0].plot(df["channel"], df["adc_clean"], 'o', ms=2)
             axc[1].plot(df["channel"], df["noise"], '-')
             axc[0].set_ylabel("ADC")
             axc[1].set_ylabel("Noise")

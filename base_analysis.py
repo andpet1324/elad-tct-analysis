@@ -11,11 +11,11 @@ A key in the file that is not in DEFAULTS is an error, to catch typos.
 A subclass adds its own keys by extending DEFAULTS.
 
 A concrete analysis implements:
-    new_results()  empty, picklable container for the results
-    process()      accumulate one cleaned run into self.results
+    QUANTITIES     names of what you store, e.g. ("mean_adc", "fit_sigma")
+    process()      self.add(quantity, df, **keys) for the numbers of one cleaned run
     plot()         make plots from the results
 
-See signal_vs_channel_ana.py for a minimal example.
+See adc_vs_channel_ana.py for a minimal example.
 """
 
 import argparse
@@ -52,13 +52,14 @@ def read_runlist(path: pathlib.Path) -> list[pathlib.Path]:
 
 class BaseAnalysis(ABC):
     DEFAULTS: dict[str, Any] = {
-        "pipeline": ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"],
+        "pipeline": ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut", "hit"],
         "empty_channels": [0, 63, 64, 127, 128, 191, 192, 256],
         "allowance": 5,
         "noise_threshold": 10,
         "chmin": 0,
         "chmax": 256,
-        "time_threshold": 18,
+        "time_threshold": 18,   # ADC threshold of the delay search
+        "hit_threshold": 20,    # |adc_clean| above this counts as a hit, see the hit step
         "default_delay": 50,
         "default_time_window": 5.0,
         "plot_run": 0,      # df_id of the run to make a plot after every cleaning step for
@@ -68,7 +69,10 @@ class BaseAnalysis(ABC):
         "style": "",        # path to a matplotlib style file, empty for the default
     }
 
-    # Bump when the layout of self.results changes, so stale caches are ignored
+    # Names of the quantities stored in self.results, e.g. QUANTITIES = (MEAN_ADC, FIT_SIGMA)
+    QUANTITIES: tuple[str, ...] = ()
+
+    # Bump when the quantities or their keys change, so stale caches are ignored
     CACHE_VERSION = 1
     CACHE_TAG = "analysis"
 
@@ -87,22 +91,40 @@ class BaseAnalysis(ABC):
 
         self.pedestals: pd.DataFrame | None = None
         self.ctx: Context | None = None
-        self.results: Any = self.new_results()
+        self._frames: list[pd.DataFrame] = []
+        self.results = pd.DataFrame()   # long table: quantity, value, error + one column per key
 
     # ---------------- To implement ----------------
     @abstractmethod
-    def new_results(self) -> Any:
-        """Empty results container. Must be picklable, it is what gets cached."""
-
-    @abstractmethod
     def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
-        """Accumulate one cleaned run into self.results"""
+        """Add the numbers of one cleaned run with self.add"""
 
     @abstractmethod
     def plot(self) -> None:
         """Make the plots from self.results"""
 
     # ---------------- Optional hooks ----------------
+    def add(self, quantity: str, data: pd.DataFrame | dict, **keys: Any) -> None:
+        """
+        Add values of one quantity. `data` needs a `value` column and may have `error`,
+        any other column is a key (e.g. channel). Scalars in `data` or **keys (z=..., x=...)
+        are the same for every row.
+        """
+        self._check(quantity)
+        self._frames.append((data if isinstance(data, pd.DataFrame) else pd.DataFrame([data])).assign(quantity=quantity, **keys))
+
+    def get(self, quantity: str, **where: Any) -> pd.DataFrame:
+        """Rows of one quantity filtered by key, lists allowed: self.get("mean_adc", channel=[95, 96])"""
+        self._check(quantity)
+        df = self.results[self.results["quantity"] == quantity]
+        for key, wanted in where.items():
+            df = df[df[key].isin(wanted) if isinstance(wanted, (list, tuple, set)) else df[key] == wanted]
+        return df.dropna(axis=1, how="all").reset_index(drop=True)
+
+    def _check(self, quantity: str) -> None:
+        if self.QUANTITIES and quantity not in self.QUANTITIES:
+            raise KeyError(f"Unknown quantity {quantity!r}, known: {list(self.QUANTITIES)}")
+
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add analysis specific command line arguments"""
 
@@ -214,6 +236,7 @@ class BaseAnalysis(ABC):
                 continue
             self.process(df, df_id, z, x)
         progress_bar.close()
+        self.results = pd.concat(self._frames, ignore_index=True)
 
     # ---------------- Result cache ----------------
     def analysis_cache_path(self) -> pathlib.Path | None:
@@ -232,9 +255,11 @@ class BaseAnalysis(ABC):
         try:
             with open(path, "rb") as f:
                 self.results = pickle.load(f)
+            if not isinstance(self.results, pd.DataFrame) or not set(self.results["quantity"]) <= set(self.QUANTITIES):
+                raise ValueError("cache holds other results, use --rebuild-ana")
         except Exception as err:
             print(f"Reading analysis cache failed with {err}")
-            self.results = self.new_results()
+            self.results = pd.DataFrame()
             return False
         print(f"Loaded analysis cache {path}")
         return True

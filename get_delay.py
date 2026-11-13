@@ -17,7 +17,7 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path, TIME_THRESHOLD: float) ->
         Scans ADC vs time and returns the time of the min signal
     """
     t = df["time"].to_numpy()
-    s = df["signal"].to_numpy()
+    s = df["adc_clean"].to_numpy()
     pos = s >= TIME_THRESHOLD
     neg = s <= -TIME_THRESHOLD
     edges = np.histogram_bin_edges(t[pos | neg], bins=100)
@@ -47,8 +47,8 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path, TIME_THRESHOLD: float) ->
         return (None, None)
 
     fig, ax = plt.subplots(1,1)
-    ax.stairs(counts_pos, edges, label="Positive signal")
-    ax.stairs(-counts_neg, edges, label="Negative signal")
+    ax.stairs(counts_pos, edges, label="Positive hits")
+    ax.stairs(-counts_neg, edges, label="Negative hits")
     xl = np.linspace(popt[1] - 2 * popt[2], popt[1] + 2 * popt[2], 1000)
     ax.plot(
         xl, -gaussian(xl, *popt), 

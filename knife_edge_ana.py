@@ -152,7 +152,7 @@ def analysis(
                 continue
 
             window = df["channel"].between(CHMIN, CHMAX)
-            integrals = df[window].groupby("run")["signal"].sum()
+            integrals = df[window].groupby("run")["adc_clean"].sum()
             if integrals.size == 0:
                 ch_mean_adc[ch][z][x] = (np.nan, np.nan)
                 continue

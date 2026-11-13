@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 
 
-def signal_vs_channel(df: pd.DataFrame, path: pathlib.Path, title: str = "",
-                      column: str = "signal") -> None:
+def adc_vs_channel(df: pd.DataFrame, path: pathlib.Path, title: str = "",
+                      column: str = "adc_clean") -> None:
     """Every entry of `column` against channel, with the per channel mean on top"""
     fig, ax = plt.subplots(1, 1)
     ax.plot(df["channel"], df[column], "o", ms=2, alpha=0.3)

@@ -2,7 +2,7 @@
 # Unknown keys are an error.
 
 # Cleaning steps in order, see cleaning.py
-pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"]
+pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut", "hit"]
 
 empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
 allowance = 5
@@ -11,6 +11,9 @@ noise_threshold = 10
 # Region of interest
 chmin = 80
 chmax = 110
+
+# |adc_clean| above this is a hit
+hit_threshold = 20
 
 # Delay search
 time_threshold = 18

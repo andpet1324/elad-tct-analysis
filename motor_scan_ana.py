@@ -144,8 +144,8 @@ def analysis(
                 fig, ax = plt.subplots(1,1)
                 df = df.sort_values(["run", "channel"], ascending=[True,True])
                 ax.errorbar(
-                    df["channel"], df.groupby("channel")["signal"].transform("mean"), 
-                    yerr=df["signal"].std(), ls="",
+                    df["channel"], df.groupby("channel")["adc_clean"].transform("mean"), 
+                    yerr=df["adc_clean"].std(), ls="",
                     marker="o", ms=4)
                 ax.set_title(f"{HIT_THRESHOLD} ADC hit threshold, z = {z:.3f}, x = {x:.3f}")
                 ax.set_xlabel("Channel")
@@ -159,12 +159,12 @@ def analysis(
             ch2_adc = df[df["channel"] == ch2]
             if z not in ch_adc:
                 ch_adc.setdefault(z, {ch1: {}, ch2: {}})
-            ch_adc[z][ch1][x] = ch1_adc["signal"].mean()
-            ch_adc[z][ch2][x] = ch2_adc["signal"].mean()
+            ch_adc[z][ch1][x] = ch1_adc["adc_clean"].mean()
+            ch_adc[z][ch2][x] = ch2_adc["adc_clean"].mean()
 
             # Extract hits
-            hit_df = df[df["signal"].abs() > HIT_THRESHOLD]
-            hits = (hit_df["signal"] != 0).groupby(hit_df["channel"]).sum()
+            hit_df = df[df["adc_clean"].abs() > HIT_THRESHOLD]
+            hits = (hit_df["adc_clean"] != 0).groupby(hit_df["channel"]).sum()
             if (hits.values.size) == 0:
                 tqdm.write(f"Df {df_id} had zero hits...")
                 continue

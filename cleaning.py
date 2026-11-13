@@ -6,13 +6,13 @@ delay (time_cut) or throw data away (channel_cut), so the delay search
 skips them, same as no_selections in clean_df.
 
 The order and which steps run is set by `pipeline` in the config file,
-e.g. pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut"]
+e.g. pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "hit"]
 
 Add your own step:
 
     @step(selection=True)
     def my_cut(df, ctx):
-        return df[df["signal"] > ctx.cfg.my_threshold]
+        return df[df["adc_clean"] > ctx.cfg.my_threshold]
 """
 
 import pathlib
@@ -23,7 +23,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from clean_df import common_mode_subtraction, remove_empty_channels
-from plot_helpers import signal_vs_channel
+from plot_helpers import adc_vs_channel
 
 
 @dataclass
@@ -52,7 +52,7 @@ def step(selection: bool = False):
 @step()
 def subtract_pedestals(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
     df = df.merge(ctx.pedestals[["channel", "pedestals"]], on="channel", how="left")
-    df["signal"] = df["adc"] - df["pedestals"]
+    df["adc_clean"] = df["adc"] - df["pedestals"]
     return df
 
 
@@ -77,6 +77,13 @@ def channel_cut(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
     return df[(df["channel"] > ctx.cfg.chmin) & (df["channel"] < ctx.cfg.chmax)]
 
 
+@step()
+def hit(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
+    """Flag the entries whose |adc_clean| is above hit_threshold"""
+    df["hit"] = df["adc_clean"].abs() > ctx.cfg.hit_threshold
+    return df
+
+
 def pipeline_steps(names: list[str], selections: bool = True) -> list[Callable]:
     """Look up the steps by name. selections=False drops the ones that need the delay"""
     unknown = [n for n in names if n not in STEPS]
@@ -89,12 +96,12 @@ def run_pipeline(df: pd.DataFrame, ctx: Context, steps: list[Callable]) -> pd.Da
     """Run the steps in order. Returns None as soon as one of them leaves nothing."""
     plot = ctx.df_id == ctx.cfg.plot_run and ctx.subdir is not None
     if plot:
-        signal_vs_channel(df, ctx.subdir / "0_raw.png", "Raw data", column="adc")
+        adc_vs_channel(df, ctx.subdir / "0_raw.png", "Raw data", column="adc")
     for i, func in enumerate(steps, start=1):
         df = func(df, ctx)
         if df is None or df.empty:
             tqdm.write(f"Df {ctx.df_id} is empty after {func.__name__}!")
             return None
         if plot:
-            signal_vs_channel(df, ctx.subdir / f"{i}_{func.__name__}.png", func.__name__)
+            adc_vs_channel(df, ctx.subdir / f"{i}_{func.__name__}.png", func.__name__)
     return df
