@@ -17,6 +17,7 @@ CHANNEL_HITS = "channel_hits" # averaged over run per channel: value = hit count
 
 class AdcVsChannel(BaseAnalysis):
     CACHE_TAG = "adc_vs_channel"
+    CACHE_VERSION = 2   # 2: channel_hits added, stored with a channel column
     QUANTITIES = (ADC_CLEAN,CHANNEL_HITS,)
 
     # One file with x triggers
@@ -26,8 +27,8 @@ class AdcVsChannel(BaseAnalysis):
         mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
         self.add(ADC_CLEAN, mean_per_channel, z=z, x=x)
 
-        # HITS (|ADC| over hit_threshold) PER CHANNEL, the hit column comes from the cleaning
-        hits_per_channel = df.groupby("channel")["hit"].sum().rename("value").reset_index()
+        # HITS (|ADC| over hit_threshold) PER CHANNEL
+        hits_per_channel = self.is_hit(df).groupby(df["channel"]).sum().rename("value").reset_index()
         self.add(CHANNEL_HITS, hits_per_channel, z=z, x=x)
 
     # Contains the data per position basically

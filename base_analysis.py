@@ -57,13 +57,13 @@ def read_runlist(path: pathlib.Path) -> list[pathlib.Path]:
 
 class BaseAnalysis(ABC):
     DEFAULTS: dict[str, Any] = {
-        "pipeline": ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut", "hit"],
+        "pipeline": ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"],
         "empty_channels": [0, 63, 64, 127, 128, 191, 192, 256],
         "allowance": 5,
         "chmin": 0,
         "chmax": 256,
         "time_threshold": 18,   # ADC threshold of the delay search
-        "hit_threshold": 20,    # |adc_clean| above this counts as a hit, see the hit step
+        "hit_threshold": 20,    # |adc_clean| above this counts as a hit, see is_hit()
         "default_delay": 50,
         "default_time_window": 5.0,
         "use_default_delay": False,
@@ -139,6 +139,10 @@ class BaseAnalysis(ABC):
         for key, wanted in where.items():
             df = df[df[key].isin(wanted) if isinstance(wanted, (list, tuple, set)) else df[key] == wanted]
         return df.dropna(axis=1, how="all").reset_index(drop=True)
+
+    def is_hit(self, df: pd.DataFrame) -> pd.Series:
+        """True for the entries whose |adc_clean| is above hit_threshold"""
+        return df["adc_clean"].abs() > self.cfg.hit_threshold
 
     def _check(self, quantity: str) -> None:
         if self.QUANTITIES and quantity not in self.QUANTITIES:

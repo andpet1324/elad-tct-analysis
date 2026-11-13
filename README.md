@@ -108,10 +108,10 @@ run are set by `pipeline` in the config. The default is:
 | `common_mode` | Subtracts the common mode per run and chip half. |
 | `time_cut` | Keeps entries within `sigma_t` of the delay. Needs the delay. |
 | `channel_cut` | Keeps `chmin < channel < chmax`. |
-| `hit` | Adds the boolean column `hit = abs(adc_clean) > hit_threshold`. |
 
 `adc_clean` is the ADC after pedestal and common mode subtraction. It is not a signal: noise is
-included. A hit is what is above the threshold.
+included. A hit is an entry above the threshold: `self.is_hit(df)` in an analysis gives them as a
+boolean Series (`abs(adc_clean) > hit_threshold`), for example `self.is_hit(df).groupby(df["channel"]).sum()`.
 
 Steps `time_cut` and `channel_cut` are marked as *selections*. The search for the delay skips them,
 since the delay is needed to do the time cut.
