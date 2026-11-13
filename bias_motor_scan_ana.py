@@ -34,7 +34,7 @@ CHMAX = 110
 PLOTCHANNEL = 0
 CH1CENTER = 6.785
 CH2CENTER = 6.845
-CHANNELS = [ch for ch in range(87,100)]
+CHANNELS = [ch for ch in range(91,100)]
 
 DEFAULT_DELAY = 50
 DEFAULT_TIME_WINDOW = 5.0
@@ -349,7 +349,7 @@ def main(args: list[str] | None = None):
             volts[s_mask], 1000 * sm[s_mask], yerr=1000 * se[s_mask], fmt='o-', ms=4, capsize=3,
             color=ch_colors[ch], label=f"Ch {ch}"
         )
-    # ax_f[0].legend(loc="upper right", ncols=3, framealpha=0.8)
+    ax_f[0].legend(loc="upper right", ncols=3, framealpha=0.8)
     ax_f[1].set_ylabel("$z_{{\mathrm{{min}}}}$ [mm]")
     ax_f[0].set_ylabel(rf"$\sigma_{{\mathrm{{min}}}}$ [µm]")
     ax_f[1].set_xlabel("Bias voltage [V]")
