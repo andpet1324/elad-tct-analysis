@@ -22,7 +22,7 @@ class AdcVsChannel(BaseAnalysis):
         self.add(ADC_CLEAN, per_channel, z=z, x=x)
 
     def plot(self) -> None:
-        d = self.results.get(ADC_CLEAN)
+        d = self.get(ADC_CLEAN)
         # Average over the runs for each channel
         by_channel = d.groupby("channel")["value"].agg(["mean", "sem"])
 

@@ -49,6 +49,11 @@ class Steps:
         self.progress.update(self.top, description=f"Step {step}/{len(self.names)}")
         self.sub = self.progress.add_task(name, total=total)
 
+    def set_total(self, total: int | None) -> None:
+        """Set the total of the current step once it is known"""
+        if self.sub is not None:
+            self.progress.update(self.sub, total=total)
+
     def advance(self, n: int = 1) -> None:
         if self.sub is not None:
             self.progress.advance(self.sub, n)

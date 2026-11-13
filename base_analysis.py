@@ -219,7 +219,7 @@ class BaseAnalysis(ABC):
     # ---------------- Analysis ----------------
     def analyze(self) -> None:
         self.find_delay()
-        self.steps.start("Analyze", total=len(self.paths))
+        self.steps.set_total(len(self.paths))
         for df_id, df in self.iter_runs():
             self.steps.advance()
             if not self.select_run(df):
