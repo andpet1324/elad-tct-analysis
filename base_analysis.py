@@ -66,6 +66,7 @@ class BaseAnalysis(ABC):
         "hit_threshold": 20,    # |adc_clean| above this counts as a hit, see the hit step
         "default_delay": 50,
         "default_time_window": 5.0,
+        "use_default_delay": False,
         "plot_run": 0,      # df_id of the run to make a plot after every cleaning step for
         "chunk_size": 100,
         "zmin": None,       # cut on the z position, leave out for no cut
@@ -220,6 +221,12 @@ class BaseAnalysis(ABC):
 
     def find_delay(self) -> None:
         """Find the time delay and window from the first run that has a signal"""
+        if self.cfg.use_default_delay:
+            print("Using default delay parameters")
+            self.ctx.delay = self.cfg.default_delay
+            self.ctx.sigma_t = self.cfg.default_time_window
+            return 
+        
         print("Getting delay parameter...")
         for df_id, df in self.iter_runs():
             df = self.clean(df, df_id, selections=False)
@@ -231,6 +238,7 @@ class BaseAnalysis(ABC):
             self.ctx.delay, self.ctx.sigma_t = np.abs(d), np.abs(st)
             print(f"Delay = {self.ctx.delay} and sigma_t = {self.ctx.sigma_t}")
             return
+        
         print("No delay parameter found! Likely there is no signal...")
         self.ctx.delay = self.cfg.default_delay
         self.ctx.sigma_t = self.cfg.default_time_window

@@ -19,7 +19,7 @@ time_threshold = 18
 default_delay = 50
 default_time_window = 5.0
 # Just uses default values
-use_default_delay = "False"
+use_default_delay = true
 
 # Make a plot after each cleaning step for this run
 plot_run = 30

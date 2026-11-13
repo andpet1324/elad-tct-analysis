@@ -91,7 +91,7 @@ def run_pipeline(df: pd.DataFrame, ctx: Context, steps: list[Callable]) -> pd.Da
     """Run the steps in order. Returns None as soon as one of them leaves nothing."""
     plot = ctx.df_id == ctx.cfg.plot_run and ctx.subdir is not None
     if plot:
-        col_vs_channel(df, ctx.subdir / "0_raw.png", "Raw data", column="adc")
+        col_vs_channel(df, ctx.subdir / "0_raw.png", "Raw data", col="adc")
     for i, func in enumerate(steps, start=1):
         t0 = time.perf_counter()
         df = func(df, ctx)
@@ -101,5 +101,5 @@ def run_pipeline(df: pd.DataFrame, ctx: Context, steps: list[Callable]) -> pd.Da
             return None
         if plot:
             col_vs_channel(df, ctx.subdir / f"{i}_{func.__name__}.png", 
-                           func.__name__, col="" col_label="ADC")
+                           func.__name__, col="adc_clean", col_label="ADC")
     return df
