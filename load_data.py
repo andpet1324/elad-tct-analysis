@@ -9,9 +9,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
 
+def cache_stem(cache: pathlib.Path) -> str:
+    """Name of the cache without a chunk number: t.parquet and t_000.parquet both give t"""
+    return re.sub(r"_\d{3,}$", "", cache.stem)
+
+
 def find_chunk_caches(cache: pathlib.Path) -> list[pathlib.Path]:
-    """The existing chunk caches of `cache` (<stem>_000.parquet, <stem>_001.parquet, ...) in order"""
-    pattern = re.compile(rf"{re.escape(cache.stem)}_(\d{{3,}}){re.escape(cache.suffix)}")
+    """
+    The existing chunk caches of `cache` (<stem>_000.parquet, <stem>_001.parquet, ...) in order.
+    A chunk file name (<stem>_000.parquet) is accepted too and means the same as <stem>.parquet.
+    """
+    pattern = re.compile(rf"{re.escape(cache_stem(cache))}_(\d{{3,}}){re.escape(cache.suffix)}")
     found = [(int(m.group(1)), p) for p in cache.parent.iterdir() if (m := pattern.fullmatch(p.name))]
     return [p for _, p in sorted(found)]
 

@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from load_data import find_chunk_caches, load_chunk, read_chunk_cache
+from load_data import cache_stem, find_chunk_caches, load_chunk, read_chunk_cache
 from get_delay import get_delay
 from progress import Steps
 from cleaning import Context, pipeline_steps, run_pipeline
@@ -93,7 +93,8 @@ class BaseAnalysis(ABC):
         # Without data files the existing chunk caches are used as they are
         self.cache_chunks = find_chunk_caches(self.args.cache) if self.args.cache and not self.paths else []
         if not self.paths and not self.cache_chunks:
-            raise SystemExit("No data given, pass files and/or --runlist, or an existing -cache")
+            raise SystemExit("No data given, pass files and/or --runlist, or a -cache with existing chunk "
+                             f"files ({self.args.cache} -> <name>_000.parquet, <name>_001.parquet, ...)")
         if self.cache_chunks:
             newest = max(p.stat().st_mtime for p in self.cache_chunks)
             print(f"No data files given, using {len(self.cache_chunks)} chunk caches "
@@ -266,7 +267,7 @@ class BaseAnalysis(ABC):
         if self.args.cache is None:
             return None
         tag = f"{self.CACHE_TAG}{self.cache_key()}_v{self.CACHE_VERSION}"
-        return self.args.cache.with_name(f"{self.args.cache.stem}_{tag}.pkl")
+        return self.args.cache.with_name(f"{cache_stem(self.args.cache)}_{tag}.pkl")
 
     def load_results(self) -> bool:
         path = self.analysis_cache_path()

@@ -79,6 +79,13 @@ def channel_cut(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
     return df[(df["channel"] > ctx.cfg.chmin) & (df["channel"] < ctx.cfg.chmax)]
 
 
+@step()
+def hit(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
+    """Flag the entries whose |adc_clean| is above hit_threshold"""
+    df["hit"] = df["adc_clean"].abs() > ctx.cfg.hit_threshold
+    return df
+
+
 def pipeline_steps(names: list[str], selections: bool = True) -> list[Callable]:
     """Look up the steps by name. selections=False drops the ones that need the delay"""
     unknown = [n for n in names if n not in STEPS]
