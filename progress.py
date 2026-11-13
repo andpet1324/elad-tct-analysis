@@ -32,9 +32,10 @@ class Steps:
         self.progress.start()
         return self
 
-    def __exit__(self, *exc) -> None:
-        self._finish_sub()
-        self.progress.update(self.top, description="TCT analysis, done")
+    def __exit__(self, exc_type, *exc) -> None:
+        if exc_type is None:
+            self._finish_sub()
+        self.progress.update(self.top, description="TCT analysis, " + ("done" if exc_type is None else "stopped"))
         self.progress.stop()
 
     def _finish_sub(self) -> None:

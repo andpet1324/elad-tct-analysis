@@ -261,7 +261,8 @@ class BaseAnalysis(ABC):
         inputs = [*self.paths, self.args.pedestal] + ([self.args.config] if self.args.config else [])
         newest = max(inputs, key=lambda p: p.stat().st_mtime)
         why = ("does not exist" if not path.exists() else "--rebuild-ana was given" if self.args.rebuild_ana
-               else f"older than {newest}" if path.stat().st_mtime <= newest.stat().st_mtime else "")
+               else f"{time.ctime(path.stat().st_mtime)} is older than {newest} ({time.ctime(newest.stat().st_mtime)})"
+               if path.stat().st_mtime <= newest.stat().st_mtime else "")
         if why:
             print(f"Analysis cache {path.name} not used: {why}")
             return False

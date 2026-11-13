@@ -1,11 +1,16 @@
 
 import json
+import time
 import pandas as pd
 import pathlib
 from tqdm import tqdm
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
+
+def _stamp(path: pathlib.Path) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(path.stat().st_mtime))
+
 
 def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = False, on_file=None) -> pd.DataFrame:
     """on_file(n) is called when n more files are done, for a progress bar"""
@@ -18,7 +23,7 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
             return pd.read_parquet(
                 cache,
                 dtype_backend="pyarrow")
-        tqdm.write(f"Cache {cache.name} is older than {newest.name}, rebuilding")
+        tqdm.write(f"Cache {cache.name} ({_stamp(cache)}) is older than {newest.name} ({_stamp(newest)}), rebuilding")
 
     # We need pyarrow for these large datasets in pandas
     # When we have like 500+ files I think
