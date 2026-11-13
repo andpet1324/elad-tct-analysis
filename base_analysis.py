@@ -133,6 +133,9 @@ class BaseAnalysis(ABC):
         """Rows of one quantity filtered by key, lists allowed: self.get("mean_adc", channel=[95, 96])"""
         self._check(quantity)
         df = self.results[self.results["quantity"] == quantity]
+        if df.empty:
+            raise ValueError(f"No results stored for {quantity!r}. Is the analysis cache from an older "
+                             f"version? Use --rebuild-ana or bump CACHE_VERSION.")
         for key, wanted in where.items():
             df = df[df[key].isin(wanted) if isinstance(wanted, (list, tuple, set)) else df[key] == wanted]
         return df.dropna(axis=1, how="all").reset_index(drop=True)
@@ -288,8 +291,8 @@ class BaseAnalysis(ABC):
         try:
             with open(path, "rb") as f:
                 self.results = pickle.load(f)
-            if not isinstance(self.results, pd.DataFrame) or not set(self.results["quantity"]) <= set(self.QUANTITIES):
-                raise ValueError("cache holds other results, use --rebuild-ana")
+            if not isinstance(self.results, pd.DataFrame) or set(self.results["quantity"]) != set(self.QUANTITIES):
+                raise ValueError(f"cache holds {sorted(set(self.results['quantity']))}, expected {sorted(self.QUANTITIES)}")
         except Exception as err:
             print(f"Reading analysis cache failed with {err}")
             self.results = pd.DataFrame()
