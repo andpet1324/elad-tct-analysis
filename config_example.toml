@@ -1,0 +1,29 @@
+# Example config, every key is optional and shown here with its default.
+# Unknown keys are an error.
+
+# Cleaning steps in order, see cleaning.py
+pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"]
+
+empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
+allowance = 5
+noise_threshold = 10
+
+# Region of interest
+chmin = 80
+chmax = 110
+
+# Delay search
+time_threshold = 18
+default_delay = 50
+default_time_window = 5.0
+
+# Make a plot after each cleaning step for this run
+plot_run = 0
+
+chunk_size = 100
+
+# Only use scan positions inside this range, leave out for all
+# zmin = 31.0
+# zmax = 32.5
+
+# style = "/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle"

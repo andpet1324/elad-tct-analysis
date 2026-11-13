@@ -35,7 +35,7 @@ PLOTCHANNEL = 0
 CHANNELS = [91,92,93,94,95,96,97,98]
 CH1CENTER = 6.785
 CH2CENTER = 6.845
-CHANNELS = [91,92,93,94,95,96,97,98]
+CH = 96
 
 DEFAULT_DELAY = 50
 DEFAULT_TIME_WINDOW = 5.0
@@ -213,7 +213,7 @@ def main(args: list[str] | None = None):
     print("Analyzing...")
 
     # Declare variables
-    channels = CHANNELS
+    channels = sorted(set(CHANNELS) | {CH})
     results = [{}, []]
     delay = None
     sigma_t = None
@@ -263,6 +263,8 @@ def main(args: list[str] | None = None):
     for voltage in voltages:
         biasdir = isdir(plotdir / f"{voltage}_volts")
         fig_zs, ax_zs = plt.subplots(1,1)
+        fig_adc, ax_adc = plt.subplots(1,1)
+        z_colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
         zs = {ch: [] for ch in channels}
         sigmas = {ch: [] for ch in channels}
         for z, zf in ch_adc[voltage].items():
@@ -270,7 +272,11 @@ def main(args: list[str] | None = None):
                 # Fit signal and get the stdev
                 keys = sorted(ch_df) # increasing x
                 x = np.array(keys, dtype=float)
-                mean_adc = np.abs(np.array([ch_df[k] for k in keys], dtype=float))
+                raw_adc = np.array([ch_df[k] for k in keys], dtype=float)
+                mean_adc = np.abs(raw_adc)
+                z_color = next(z_colors) if ch_id == CH else None
+                if ch_id == CH:
+                    ax_adc.plot(x, raw_adc, "o", ms=3, color=z_color, label=f"z = {z:.2f} mm")
                 argmax = np.argmax(mean_adc) # SIGNAL IS ABS SO MAX
                 peak = mean_adc[argmax]
                 base = 0 # Assume 0 baseline
@@ -286,6 +292,9 @@ def main(args: list[str] | None = None):
                         popt, pcov = curve_fit(
                             box_gaussian, x, mean_adc, 
                             p0=p0, bounds=(lo, hi), maxfev=10000)
+                    if ch_id == CH:
+                        xf = np.linspace(x.min(), x.max(), 500)
+                        ax_adc.plot(xf, np.sign(raw_adc.sum()) * box_gaussian(xf, *popt), "--", color=z_color)
                     zs[ch_id].append(z)
                     sigmas[ch_id].append(abs(popt[3]))
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
@@ -327,6 +336,14 @@ def main(args: list[str] | None = None):
         ax_zs.set_ylim(-10, 80)
         fig_zs.savefig(biasdir / "focus_scan.png", dpi=150)
         plt.close(fig_zs)
+
+        ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())
+        ax_adc.legend()
+        ax_adc.set_title(f"Ch {CH}, {voltage} V")
+        ax_adc.set_xlabel("Position in x [mm]")
+        ax_adc.set_ylabel("Mean ADC")
+        fig_adc.savefig(biasdir / "ch_mean_adc.png", dpi=150)
+        plt.close(fig_adc)
 
     fig_f, ax_f = plt.subplots(2,1, sharex=True)
 
