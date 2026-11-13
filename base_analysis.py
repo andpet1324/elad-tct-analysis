@@ -91,13 +91,17 @@ class BaseAnalysis(ABC):
         self.subdir = isdir(self.plotdir / "adcs")
         self.paths = sorted(self.args.data + (read_runlist(self.args.runlist) if self.args.runlist else []))
         # Without data files the existing chunk caches are used as they are
-        self.cache_chunks = find_chunk_caches(self.args.cache) if self.args.cache and not self.paths else []
+        # A chunk file (name_003.parquet) means only that chunk, the base name (name.parquet) means all of them
+        self.single_chunk = bool(self.args.cache and not self.paths and self.args.cache.exists()
+                                 and cache_stem(self.args.cache) != self.args.cache.stem)
+        self.cache_chunks = ([self.args.cache] if self.single_chunk
+                             else find_chunk_caches(self.args.cache) if self.args.cache and not self.paths else [])
         if not self.paths and not self.cache_chunks:
             raise SystemExit("No data given, pass files and/or --runlist, or a -cache with existing chunk "
                              f"files ({self.args.cache} -> <name>_000.parquet, <name>_001.parquet, ...)")
         if self.cache_chunks:
             newest = max(p.stat().st_mtime for p in self.cache_chunks)
-            print(f"No data files given, using {len(self.cache_chunks)} chunk caches "
+            print(f"No data files given, using {'only ' + self.cache_chunks[0].name if self.single_chunk else str(len(self.cache_chunks)) + ' chunk caches'} "
                   f"(newest from {time.ctime(newest)}). Nothing checks that they are up to date.")
         self.n_chunks = len(self.cache_chunks) or -(-len(self.paths) // self.cfg.chunk_size)
 
@@ -267,7 +271,7 @@ class BaseAnalysis(ABC):
         if self.args.cache is None:
             return None
         tag = f"{self.CACHE_TAG}{self.cache_key()}_v{self.CACHE_VERSION}"
-        return self.args.cache.with_name(f"{cache_stem(self.args.cache)}_{tag}.pkl")
+        return self.args.cache.with_name(f"{self.args.cache.stem if self.single_chunk else cache_stem(self.args.cache)}_{tag}.pkl")
 
     def load_results(self) -> bool:
         path = self.analysis_cache_path()
