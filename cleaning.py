@@ -61,7 +61,7 @@ def subtract_pedestals(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
 @step()
 def remove_empty(df: pd.DataFrame, ctx: Context) -> pd.DataFrame:
     c = ctx.cfg
-    return remove_empty_channels(df, c.allowance, c.noise_threshold, c.empty_channels)
+    return remove_empty_channels(df, c.allowance, c.empty_channels)
 
 
 @step()

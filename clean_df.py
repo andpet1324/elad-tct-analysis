@@ -55,34 +55,10 @@ def common_mode_subtraction(df: pd.DataFrame, fast: bool = False) -> pd.DataFram
     return df
 
 
-def remove_noisy_channels(df: pd.DataFrame, ALLOWANCE: int, NOISE_THRESHOLD: float, EMPTY_CHANNELS: list[int]) -> pd.DataFrame:
-    """
-        Removes the very noisy channels. We only allow removal of 
-        channels close to the empty channels to not remove the signal
-    """
-    df["noise"] = df.groupby("channel")["adc"].transform("std")
-    ch = df["channel"].to_numpy()
-    dist = np.abs(ch[:, None] - np.array(EMPTY_CHANNELS)[None, :]).min(axis=1)
-    mask = (
-        (df["adc"] > 
-        df.groupby(["channel"])["adc"].transform("median") + NOISE_THRESHOLD) &
-        (dist <= ALLOWANCE)
-    )
-    noisy_channels = df.loc[mask, "channel"].unique()
-    df = df[~df["channel"].isin(noisy_channels)]
-
-    return df
-
-
-def remove_empty_channels(df: pd.DataFrame, ALLOWANCE: int, NOISE_THRESHOLD: float, EMPTY_CHANNELS: list[int]) -> pd.DataFrame:
-    """
-        Masks empty channels and their very noisy neighbours.
-    """
-    ch = df["channel"]
-    mask = ~ch.isin(EMPTY_CHANNELS)
-    df = df[mask]
-    df = remove_noisy_channels(df, ALLOWANCE, NOISE_THRESHOLD, EMPTY_CHANNELS)
-    return df
+def remove_empty_channels(df: pd.DataFrame, ALLOWANCE: int, EMPTY_CHANNELS: list[int]) -> pd.DataFrame:
+    """Removes the empty channels and every channel within ALLOWANCE of them"""
+    bad = np.add.outer(EMPTY_CHANNELS, np.arange(-ALLOWANCE, ALLOWANCE + 1)).ravel()
+    return df[~df["channel"].isin(bad)]
 
 
 def clean_df(
@@ -142,7 +118,7 @@ def clean_df(
 
         # Remove empty and noisy channels
         df["chip"] = df["channel"] // 128
-        df = remove_empty_channels(df, ALLOWANCE, NOISE_THRESHOLD, EMPTY_CHANNELS)
+        df = remove_empty_channels(df, ALLOWANCE, EMPTY_CHANNELS)
 
         if df_id == PLOTCHANNEL:
             figc, axc = plt.subplots(2,1, gridspec_kw={'height_ratios': [3, 1]})

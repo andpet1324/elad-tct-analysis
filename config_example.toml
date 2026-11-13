@@ -6,7 +6,6 @@ pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "ch
 
 empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
 allowance = 5
-noise_threshold = 10
 
 # Region of interest
 chmin = 80
