@@ -1,8 +1,8 @@
 """
 Example analysis: mean cleaned ADC against channel, over all runs.
 
-    python3 adc_vs_channel_ana.py data/*.txt -ped pedestals.csv \
-        -plots plots/ -c config_example.toml -cache cache/run.parquet
+    python3 adc_vs_channel_ana.py data/*.csv -ped pedestals.csv \
+        -plots plots/ -conf config_example.toml -cache cache/run.parquet
 """
 
 import matplotlib.pyplot as plt

@@ -6,7 +6,7 @@ NOT TESTED, meant to be reviewed.
     parse args + config -> cache raw data -> find delay -> loop over runs ->
     clean (pipeline of steps, see cleaning.py) -> accumulate -> cache -> plot
 
-Settings come from a TOML config file (-c), on top of DEFAULTS below.
+Settings come from a TOML config file (-conf), on top of DEFAULTS below.
 A key in the file that is not in DEFAULTS is an error, to catch typos.
 A subclass adds its own keys by extending DEFAULTS.
 
@@ -15,7 +15,7 @@ A concrete analysis implements:
     process()      self.add(quantity, df, **keys) for the numbers of one cleaned run
     plot()         make plots from the results
 
-See adc_vs_channel_ana.py for a minimal example.
+See adc_vs_channel_ana.py for a minimal example and README.md for the details.
 """
 
 import argparse
@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from load_data import load_chunk
+from load_data import find_chunk_caches, load_chunk, read_chunk_cache
 from get_delay import get_delay
 from progress import Steps
 from cleaning import Context, pipeline_steps, run_pipeline
@@ -89,9 +89,15 @@ class BaseAnalysis(ABC):
         self.plotdir = isdir(self.args.plots)
         self.subdir = isdir(self.plotdir / "adcs")
         self.paths = sorted(self.args.data + (read_runlist(self.args.runlist) if self.args.runlist else []))
-        if not self.paths:
-            raise SystemExit("No data given, pass files and/or --runlist")
-        self.n_chunks = -(-len(self.paths) // self.cfg.chunk_size)
+        # Without data files the existing chunk caches are used as they are
+        self.cache_chunks = find_chunk_caches(self.args.cache) if self.args.cache and not self.paths else []
+        if not self.paths and not self.cache_chunks:
+            raise SystemExit("No data given, pass files and/or --runlist, or an existing -cache")
+        if self.cache_chunks:
+            newest = max(p.stat().st_mtime for p in self.cache_chunks)
+            print(f"No data files given, using {len(self.cache_chunks)} chunk caches "
+                  f"(newest from {time.ctime(newest)}). Nothing checks that they are up to date.")
+        self.n_chunks = len(self.cache_chunks) or -(-len(self.paths) // self.cfg.chunk_size)
 
         self.pedestals: pd.DataFrame | None = None
         self.ctx: Context | None = None
@@ -179,7 +185,7 @@ class BaseAnalysis(ABC):
 
     def cache_data(self) -> None:
         """Build the parsed data caches chunk by chunk to not overload the memory"""
-        for k in range(self.n_chunks):
+        for k in range(self.n_chunks if self.paths else 0):
             load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size, self.args.rebuild_data,
                        on_file=self.steps.advance)
 
@@ -195,7 +201,8 @@ class BaseAnalysis(ABC):
         df_id = -1
         for k in range(self.n_chunks):
             with self.timed("load chunk"):
-                df_all = load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size)
+                df_all = (load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size) if self.paths
+                          else read_chunk_cache(self.cache_chunks[k]))
                 runs = [g for _, g in df_all.groupby("run_id")]
             del df_all
             for df in runs:
@@ -231,7 +238,7 @@ class BaseAnalysis(ABC):
     # ---------------- Analysis ----------------
     def analyze(self) -> None:
         self.find_delay()
-        self.steps.set_total(len(self.paths))
+        self.steps.set_total(len(self.paths) or None)
         for df_id, df in self.iter_runs():
             self.steps.advance()
             if not self.select_run(df):
@@ -257,7 +264,7 @@ class BaseAnalysis(ABC):
         path = self.analysis_cache_path()
         if path is None:
             return False
-        inputs = [*self.paths, self.args.pedestal] + ([self.args.config] if self.args.config else [])
+        inputs = [*(self.paths or self.cache_chunks), self.args.pedestal] + ([self.args.config] if self.args.config else [])
         newest = max(inputs, key=lambda p: p.stat().st_mtime)
         why = ("does not exist" if not path.exists() else "--rebuild-ana was given" if self.args.rebuild_ana
                else f"{time.ctime(path.stat().st_mtime)} is older than {newest} ({time.ctime(newest.stat().st_mtime)})"
@@ -291,7 +298,7 @@ class BaseAnalysis(ABC):
     # ---------------- Entry point ----------------
     def run(self) -> None:
         with Steps([LOAD, ANALYZE, PLOT]) as self.steps:
-            self.steps.start(LOAD, total=len(self.paths))
+            self.steps.start(LOAD, total=len(self.paths) or None)
             self.pedestals = pd.read_csv(self.args.pedestal, header=1)
             self.ctx = Context(cfg=self.cfg, pedestals=self.pedestals,
                                fast_common_mode=self.args.fast_common_mode)

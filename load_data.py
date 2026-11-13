@@ -1,5 +1,6 @@
 
 import json
+import re
 import time
 import pandas as pd
 import pathlib
@@ -7,6 +8,17 @@ from tqdm import tqdm
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
+
+def find_chunk_caches(cache: pathlib.Path) -> list[pathlib.Path]:
+    """The existing chunk caches of `cache` (<stem>_000.parquet, <stem>_001.parquet, ...) in order"""
+    pattern = re.compile(rf"{re.escape(cache.stem)}_(\d{{3,}}){re.escape(cache.suffix)}")
+    found = [(int(m.group(1)), p) for p in cache.parent.iterdir() if (m := pattern.fullmatch(p.name))]
+    return [p for _, p in sorted(found)]
+
+
+def read_chunk_cache(path: pathlib.Path) -> pd.DataFrame:
+    return pd.read_parquet(path, dtype_backend="pyarrow")
+
 
 def _stamp(path: pathlib.Path) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(path.stat().st_mtime))
@@ -20,9 +32,7 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
         if cache.stat().st_mtime > newest.stat().st_mtime:
             tqdm.write(f"Loading cache {cache}")
             on_file(len(paths))
-            return pd.read_parquet(
-                cache,
-                dtype_backend="pyarrow")
+            return read_chunk_cache(cache)
         tqdm.write(f"Cache {cache.name} ({_stamp(cache)}) is older than {newest.name} ({_stamp(newest)}), rebuilding")
 
     # We need pyarrow for these large datasets in pandas
