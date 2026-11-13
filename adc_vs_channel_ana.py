@@ -17,7 +17,7 @@ CHANNEL_HITS = "channel_hits" # averaged over run per channel: value = hit count
 
 class AdcVsChannel(BaseAnalysis):
     CACHE_TAG = "adc_vs_channel"
-    CACHE_VERSION = 2   # 2: channel_hits added, stored with a channel column
+    CACHE_VERSION = 1   # 2: channel_hits added, stored with a channel column
     QUANTITIES = (ADC_CLEAN,CHANNEL_HITS,)
 
     # One file with x triggers
@@ -45,7 +45,7 @@ class AdcVsChannel(BaseAnalysis):
         ax.set_title("Full x-scan")
         fig.savefig(self.plotdir / "adc_vs_channel.png", dpi=150)
         plt.close(fig)
-
+        
         # HITS PER CHANNEL
         d = self.get(CHANNEL_HITS)
         # Average over the files (positions) for each channel
@@ -54,9 +54,22 @@ class AdcVsChannel(BaseAnalysis):
         fig, ax = plt.subplots(1, 1)
         ax.errorbar(by_channel.index, by_channel["mean"], yerr=by_channel["sem"], fmt="o", ms=3)
         ax.set_xlabel("Channel")
-        ax.set_ylabel("Hits per file")
-        ax.set_title(f"Full x-scan, {self.cfg.hit_threshold} ADC hit threshold")
+        ax.set_ylabel("Hits")
+        ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
         fig.savefig(self.plotdir / "hits_vs_channel.png", dpi=150)
+        plt.close(fig)
+
+        # HITS PER X POSITION
+        d = self.get(CHANNEL_HITS)
+        # Average over the files (positions) for each channel
+        by_x = d.groupby("x")["value"].agg(["mean", "sem"])
+
+        fig, ax = plt.subplots(1, 1)
+        ax.errorbar(by_x.index, by_x["mean"], yerr=by_x["sem"], fmt="o", ms=3)
+        ax.set_xlabel("Position in x [mm]")
+        ax.set_ylabel("Hits")
+        ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
+        fig.savefig(self.plotdir / "hits_vs_x.png", dpi=150)
         plt.close(fig)
 
 
