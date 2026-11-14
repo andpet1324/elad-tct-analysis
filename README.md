@@ -31,7 +31,7 @@ python3 adc_vs_channel_ana.py data/*.csv -ped pedestals.csv -plots plots/run1 \
 | `-plots`, `--plots` | Folder for plots, made if missing. Required. |
 | `-cache`, `--cache` | Base name of the data caches (`caches/run1.parquet`). Without it the CSVs are parsed every time. |
 | `--rebuild-data` | Ignore and rewrite the data caches. |
-| `--rebuild-ana` | Ignore and rewrite the analysis cache. |
+| `--rebuild-ana` | Ignore the analysis and cleaned data caches and clean everything again. |
 | `--fast-common-mode` | Median instead of a fit for the common mode. A plain flag, it takes no value. |
 | `--profile` | After the analysis, print the seconds spent in each part, slowest first. |
 
@@ -153,20 +153,48 @@ DEFAULTS = {**BaseAnalysis.DEFAULTS, "my_threshold": 5.0}
 
 ## Caches
 
-There are two kinds, both written next to the path you give in `-cache`.
+There are three kinds, all written next to the path you give in `-cache`. Each one is only redone when something
+it depends on has changed.
 
 **Data caches**: `<stem>_000.parquet`, `<stem>_001.parquet`, ... Each holds `chunk_size` CSV files, parsed.
 A chunk cache is used only if it is newer than every CSV in it. If one is older, the chunk is rebuilt and
 the output says which file caused it, with both times. A scan that is still running changes the last chunk
 every time a file arrives, so that chunk is rebuilt each run until the scan is done.
 
-**Analysis cache**: `<stem>_<CACHE_TAG><cache_key>_v<CACHE_VERSION>.pkl`. Holds `self.results`. When it is
-valid, the data is not touched at all and the run goes straight to the plots. It is rejected when:
-- it does not exist, or `--rebuild-ana` is given,
-- it is older than any data file, the pedestal file or the config file (so editing the config invalidates it),
-- it holds other quantities than `QUANTITIES`.
+**Cleaned data cache**: `<stem>_<CACHE_TAG><cache_key>_cleaned.pkl`. Every run after the cleaning pipeline, kept
+so that `process()` can be run again without cleaning. Cleaning is the slow part.
 
-The reason is printed. **Bump `CACHE_VERSION`** whenever you change what an analysis stores.
+**Analysis cache**: `<stem>_<CACHE_TAG><cache_key>_v<CACHE_VERSION>.pkl`. Holds `self.results`. When it is
+valid, the data is not touched at all and the run goes straight to the plots.
+
+Both of the last two are rejected, with the reason printed, when:
+- the file does not exist, or `--rebuild-ana` is given,
+- it is older than any data file or the pedestal file,
+- a setting it depends on has changed (the message says which, for example `hit_threshold 20 -> 100`),
+- (analysis cache) it holds other quantities than `QUANTITIES`.
+
+**Bump `CACHE_VERSION`** whenever you change what `process()` stores. That makes the analysis cache a new
+file, and the cleaned data is still used. If you change the cleaning code itself (`cleaning.py`), use
+`--rebuild-ana`, since the code is not part of the check.
+
+### Changing settings without redoing everything
+
+Config keys are in three groups. What a change costs depends on the group:
+
+| Group | Keys | A change causes |
+|---|---|---|
+| Cleaning (`CLEAN_KEYS`) | `pipeline`, `empty_channels`, `allowance`, `chmin`, `chmax`, `time_threshold`, `default_delay`, `default_time_window`, `use_default_delay`, `zmin`, `zmax`, and `--fast-common-mode` | everything is cleaned again (slow) |
+| Process | `hit_threshold` and every key you add that is in neither of the other groups | `process()` runs again on the cleaned data (seconds) |
+| Plot (`PLOT_KEYS`) | `pitch`, `style`, `plot_run`, `chunk_size` | nothing is recomputed, only `plot()` runs |
+
+Any other key counts as a process key, so a key you forget to sort costs a cheap re-run of `process()` and can
+never give stale results. If your subclass adds a key that only `plot()` uses, add it to `PLOT_KEYS` so that
+changing it recomputes nothing: `PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("my_key",)`. If `select_run()` uses a key
+of your own, add it to `CLEAN_KEYS` the same way.
+
+Example: with a finished analysis, change `hit_threshold = 20` to `hit_threshold = 60` in the config and run
+the same command again. The output says `... not used: setting changed: hit_threshold 20 -> 60`, then
+`Using the cleaned data in ...`, and `process()` and `plot()` run, without cleaning.
 
 ### Running with only the caches
 

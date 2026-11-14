@@ -3,12 +3,17 @@ Template base class for the TCT scan analyses.
 
 NOT TESTED, meant to be reviewed.
 
-    parse args + config -> cache raw data -> find delay -> loop over runs ->
-    clean (pipeline of steps, see cleaning.py) -> accumulate -> cache -> plot
+    parse args + config -> cache raw data -> find delay -> clean every run (pipeline of steps,
+    see cleaning.py) -> process every cleaned run -> plot
 
 Settings come from a TOML config file (-conf), on top of DEFAULTS below.
 A key in the file that is not in DEFAULTS is an error, to catch typos.
 A subclass adds its own keys by extending DEFAULTS.
+
+Each stage has its own cache, so changing a setting only redoes what depends on it:
+    CLEAN_KEYS   changes the cleaned data -> clean everything again (slow)
+    other keys   used by process() (hit_threshold, ...) -> process() again on the cleaned data (fast)
+    PLOT_KEYS    only used by plot() -> nothing is recomputed, just plot
 
 A concrete analysis implements:
     QUANTITIES     names of what you store, e.g. ("mean_adc", "fit_sigma")
@@ -75,6 +80,15 @@ class BaseAnalysis(ABC):
         "style": "",        # path to a matplotlib style file, empty for the default
     }
 
+    # Keys that change the cleaned data. A change re-cleans all the data. If select_run() uses a key
+    # of your own, add it: CLEAN_KEYS = BaseAnalysis.CLEAN_KEYS + ("my_key",)
+    CLEAN_KEYS: tuple[str, ...] = ("pipeline", "empty_channels", "allowance", "chmin", "chmax",
+                                   "time_threshold", "default_delay", "default_time_window",
+                                   "use_default_delay", "zmin", "zmax")
+    # Keys that only plot() or the data reading uses. A change recomputes nothing.
+    # Every other key is assumed to be used by process(), so a change runs process() again.
+    PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size")
+
     # Names of the quantities stored in self.results, e.g. QUANTITIES = (MEAN_ADC, FIT_SIGMA)
     QUANTITIES: tuple[str, ...] = ()
 
@@ -109,6 +123,7 @@ class BaseAnalysis(ABC):
         self.pedestals: pd.DataFrame | None = None
         self.ctx: Context | None = None
         self._frames: list[pd.DataFrame] = []
+        self.cleaned: dict[str, Any] = {}   # runs, empty, delay, sigma_t, see clean_all()
         self.results = pd.DataFrame()   # long table: quantity, value, error + one column per key
 
     # ---------------- To implement ----------------
@@ -179,7 +194,7 @@ class BaseAnalysis(ABC):
         parser.add_argument("-cache", "--cache", type=pathlib.Path, default=None,
                             help="Cache file (.parquet) for the parsed data")
         parser.add_argument("--rebuild-data", action="store_true", help="Rewrite the data caches")
-        parser.add_argument("--rebuild-ana", action="store_true", help="Rewrite the analysis cache")
+        parser.add_argument("--rebuild-ana", action="store_true", help="Ignore the analysis and cleaned data caches, clean everything again")
         parser.add_argument("--profile", action="store_true", help="Print where the time went")
         parser.add_argument("--fast-common-mode", action="store_true",
                             help="Fast and weak method of subtracting the common mode")
@@ -257,64 +272,125 @@ class BaseAnalysis(ABC):
         self.ctx.sigma_t = self.cfg.default_time_window
 
     # ---------------- Analysis ----------------
-    def analyze(self) -> None:
+    def clean_all(self) -> None:
+        """Clean every run and keep the result, so that process() can be run again without cleaning"""
         self.find_delay()
         self.steps.set_total(len(self.paths) or None)
+        frames, empty = [], []
         for df_id, df in self.iter_runs():
             self.steps.advance()
             if not self.select_run(df):
                 continue
-            z = df["z"].iloc[0]
-            x = df["x"].iloc[0]
+            z, x = df["z"].iloc[0], df["x"].iloc[0]
             df = self.clean(df, df_id)
             if df is None:
-                self.on_empty(df_id, z, x)
-                continue
+                empty.append((df_id, z, x))
+            else:
+                frames.append(df.assign(df_id=df_id))
+        self.cleaned = {"runs": pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(),
+                        "empty": empty, "delay": self.ctx.delay, "sigma_t": self.ctx.sigma_t}
+        self.save_cleaned()
+
+    def process_all(self) -> None:
+        runs = self.cleaned["runs"]
+        if runs.empty:
+            raise SystemExit("Nothing is left after cleaning, check the cuts in the config")
+        self._frames = []
+        self.steps.set_total(runs["df_id"].nunique())
+        for df_id, df in runs.groupby("df_id", sort=True):
+            self.steps.advance()
             with self.timed("process"):
-                self.process(df, df_id, z, x)
+                self.process(df.drop(columns="df_id"), df_id, df["z"].iloc[0], df["x"].iloc[0])
+        for df_id, z, x in self.cleaned["empty"]:
+            self.on_empty(df_id, z, x)
         self.results = pd.concat(self._frames, ignore_index=True)
 
-    # ---------------- Result cache ----------------
-    def analysis_cache_path(self) -> pathlib.Path | None:
+    # ---------------- Caches ----------------
+    def _params(self) -> tuple[dict, dict]:
+        """(what the cleaned data depends on, what process() depends on)"""
+        clean = {k: getattr(self.cfg, k) for k in self.CLEAN_KEYS}
+        clean["fast_common_mode"] = self.args.fast_common_mode
+        later = {k: v for k, v in vars(self.cfg).items() if k not in self.CLEAN_KEYS + self.PLOT_KEYS}
+        return clean, later
+
+    def _cache_path(self, what: str) -> pathlib.Path | None:
         if self.args.cache is None:
             return None
-        tag = f"{self.CACHE_TAG}{self.cache_key()}_v{self.CACHE_VERSION}"
-        return self.args.cache.with_name(f"{self.args.cache.stem if self.single_chunk else cache_stem(self.args.cache)}_{tag}.pkl")
+        stem = self.args.cache.stem if self.single_chunk else cache_stem(self.args.cache)
+        return self.args.cache.with_name(f"{stem}_{self.CACHE_TAG}{self.cache_key()}_{what}.pkl")
+
+    def analysis_cache_path(self) -> pathlib.Path | None:
+        return self._cache_path(f"v{self.CACHE_VERSION}")
+
+    def _read_cache(self, path: pathlib.Path | None, params: dict) -> dict | None:
+        """The dict pickled in `path`, or None, with the reason printed, if it cannot be used"""
+        if path is None:
+            return None
+        inputs = [*(self.paths or self.cache_chunks), self.args.pedestal]
+        newest = max(inputs, key=lambda p: p.stat().st_mtime)
+        if not path.exists():
+            why = "does not exist"
+        elif self.args.rebuild_ana:
+            why = "--rebuild-ana was given"
+        elif path.stat().st_mtime <= newest.stat().st_mtime:
+            why = f"{time.ctime(path.stat().st_mtime)} is older than {newest} ({time.ctime(newest.stat().st_mtime)})"
+        else:
+            try:
+                with open(path, "rb") as f:
+                    cache = pickle.load(f)
+                changed = [f"{k} {cache['params'].get(k)} -> {v}" for k, v in params.items() if cache["params"].get(k) != v]
+                why = "setting changed: " + ", ".join(changed) if changed else ""
+            except Exception as err:
+                why = f"could not be read ({err}), probably an older format"
+            if not why:
+                return cache
+        print(f"{path.name} not used: {why}")
+        return None
 
     def load_results(self) -> bool:
-        path = self.analysis_cache_path()
-        if path is None:
+        clean, later = self._params()
+        cache = self._read_cache(self.analysis_cache_path(), {**clean, **later})
+        if cache is None:
             return False
-        inputs = [*(self.paths or self.cache_chunks), self.args.pedestal] + ([self.args.config] if self.args.config else [])
-        newest = max(inputs, key=lambda p: p.stat().st_mtime)
-        why = ("does not exist" if not path.exists() else "--rebuild-ana was given" if self.args.rebuild_ana
-               else f"{time.ctime(path.stat().st_mtime)} is older than {newest} ({time.ctime(newest.stat().st_mtime)})"
-               if path.stat().st_mtime <= newest.stat().st_mtime else "")
-        if why:
-            print(f"Analysis cache {path.name} not used: {why}")
+        if set(cache["results"]["quantity"]) != set(self.QUANTITIES):
+            print(f"Analysis cache holds {sorted(set(cache['results']['quantity']))}, expected {sorted(self.QUANTITIES)}")
             return False
-        try:
-            with open(path, "rb") as f:
-                self.results = pickle.load(f)
-            if not isinstance(self.results, pd.DataFrame) or set(self.results["quantity"]) != set(self.QUANTITIES):
-                raise ValueError(f"cache holds {sorted(set(self.results['quantity']))}, expected {sorted(self.QUANTITIES)}")
-        except Exception as err:
-            print(f"Reading analysis cache failed with {err}")
-            self.results = pd.DataFrame()
-            return False
-        print(f"Loaded analysis cache {path}")
+        self.results = cache["results"]
+        print(f"Loaded analysis cache {self.analysis_cache_path()}")
         return True
 
     def save_results(self) -> None:
         path = self.analysis_cache_path()
         if path is None:
             return
+        clean, later = self._params()
         try:
             with open(path, "wb") as f:
-                pickle.dump(self.results, f)
+                pickle.dump({"params": {**clean, **later}, "results": self.results}, f)
             print(f"Wrote analysis cache {path}")
         except Exception as err:
             print(f"Writing analysis cache failed with {err}")
+
+    def load_cleaned(self) -> bool:
+        clean, _ = self._params()
+        cache = self._read_cache(self._cache_path("cleaned"), clean)
+        if cache is None:
+            return False
+        self.cleaned = cache
+        self.ctx.delay, self.ctx.sigma_t = cache["delay"], cache["sigma_t"]
+        print(f"Using the cleaned data in {self._cache_path('cleaned')}")
+        return True
+
+    def save_cleaned(self) -> None:
+        path = self._cache_path("cleaned")
+        if path is None:
+            return
+        try:
+            with open(path, "wb") as f:
+                pickle.dump({"params": self._params()[0], **self.cleaned}, f)
+            print(f"Wrote cleaned data {path}")
+        except Exception as err:
+            print(f"Writing cleaned data failed with {err}")
 
     # ---------------- Entry point ----------------
     def run(self) -> None:
@@ -324,14 +400,17 @@ class BaseAnalysis(ABC):
             self.ctx = Context(cfg=self.cfg, pedestals=self.pedestals,
                                fast_common_mode=self.args.fast_common_mode)
 
-            # A valid analysis cache means the data is not touched at all
-            cached = self.load_results()
-            if not cached and self.args.cache is not None:
+            # Cheapest first: finished results, then cleaned data, then the data itself
+            have_results = self.load_results()
+            have_cleaned = not have_results and self.load_cleaned()
+            if not have_results and not have_cleaned and self.args.cache is not None:
                 self.cache_data()
 
             self.steps.start(ANALYZE, total=None)
-            if not cached:
-                self.analyze()
+            if not have_results:
+                if not have_cleaned:
+                    self.clean_all()
+                self.process_all()
                 self.save_results()
                 if self.args.profile:
                     for name, sec in sorted(self.ctx.timings.items(), key=lambda kv: -kv[1]):
