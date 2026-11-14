@@ -9,14 +9,18 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 import pandas as pd
 import numpy as np
+import warnings
+from scipy.optimize import curve_fit
+from scipy.optimize import OptimizeWarning
 
-from base_analysis import BaseAnalysis
+from base_analysis import BaseAnalysis, isdir
+from fits import box_gaussian
 
 ADC_CLEAN = "adc_clean"   # per run and channel: value = mean ADC, error = its standard error
 CHANNEL_HITS = "channel_hits" # averaged over run per channel: value = hit counts, error = None
 
 
-class AdcVsChannel(BaseAnalysis):
+class XScan(BaseAnalysis):
     CACHE_TAG = "adc_vs_channel"
     CACHE_VERSION = 1   # 2: channel_hits added, stored with a channel column
     QUANTITIES = (ADC_CLEAN,CHANNEL_HITS,)
@@ -36,6 +40,9 @@ class AdcVsChannel(BaseAnalysis):
 
     # Contains the data per position basically
     def plot(self) -> None:
+        # Define subdirs
+        fitdir = isdir(self.plotdir / "fits")
+
         # ADC MEAN PER CHANNEL
         d = self.get(ADC_CLEAN)
         # Average over the runs for each channel
@@ -84,6 +91,44 @@ class AdcVsChannel(BaseAnalysis):
         fig.savefig(self.plotdir / "hits_map.png", dpi=150)
         plt.close(fig)
 
+        # Get the channel to position mapping
+        # This is a rough estimation. The fits give better positions
+        ch_to_x = {ch: hits.index[np.argmax(hits[ch].to_numpy())] for ch in active}
+        for ch in active:
+            # Fit a box-gaussian and find the mean value. If the fit don't
+            # meet conditions, move to next channel.
+            # Conditions are: ...
+            s = hits[ch].sort_index()
+            x = s.index.to_numpy(dtype=float)
+            y = s.to_numpy(dtype=float)
+            above_x = x[y > y.max() / 2]
+            w0 = above_x.max() - above_x.min() if above_x.size > 1 else self.cfg.pitch / 2
+            x0 = x[np.argmax(y)]  # peak position in mm
+            # Last parameter (offset) starts at the baseline
+            p0 = [y.max(), x0, w0, max(w0 / 10, np.diff(x).min()), y.min()]
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", RuntimeWarning)
+                    warnings.simplefilter("error", OptimizeWarning)
+                    popt, pcov = curve_fit(box_gaussian, x, y, p0=p0)
+                fig, ax = plt.subplots(1, 1)
+                xr = np.linspace(x.min(), x.max(), 1000)
+                ax.plot(x, y)
+                ax.plot(xr, box_gaussian(xr, *popt))
+                fig.savefig(fitdir / f"channel_{ch}_box_gaussian_fit.png", dpi=150)
+            except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
+                print(f"Fit failed with {err}")
+                continue
+            # Check: is the fit good?
+            # Consider adding a more specific check here
+            if (abs(popt[0] - y.max()) < y.max()/10):
+                print(f"ch {ch}")
+                ch_to_x[ch] = popt[1]
+                # Now define the other channels with pitch
+                for ch2 in active:
+                    ch_to_x[ch2] = popt[1] + self.cfg.pitch * (ch2 - ch)
+                break
+
         fig, ax = plt.subplots(1, 1)
         for ch in active:
             ax.plot(hits.index, hits[ch], "-o", ms=2, label=f"Ch {int(ch)}")
@@ -93,9 +138,20 @@ class AdcVsChannel(BaseAnalysis):
         ax.set_ylabel("Hits")
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
         ax.set_xlim(7.9, 9.2)
+
+        # Second x-axis on top, with channel numbers at their peak positions
+        ax_top = ax.twiny()
+        ax_top.set_xlim(ax.get_xlim())  # must match the bottom axis
+        # Keep only channels whose peak falls inside the visible range
+        visible = [(ch, x) for ch, x in ch_to_x.items() if 7.9 <= x <= 9.2]
+        ax_top.set_xticks([x for _, x in visible])
+        ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
+        ax_top.tick_params(axis="x", labelrotation=90, labelsize="x-small")
+        ax_top.set_xlabel("Channel")
+
         fig.savefig(self.plotdir / "hits_vs_x.png", dpi=150)
         plt.close(fig)
 
 
 if __name__ == "__main__":
-    AdcVsChannel().run()
+    XScan().run()

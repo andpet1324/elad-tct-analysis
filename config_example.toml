@@ -30,4 +30,6 @@ chunk_size = 100
 # zmin = 31.0
 # zmax = 32.5
 
+pitch = 0.055 # mm
+
 style = "/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle"

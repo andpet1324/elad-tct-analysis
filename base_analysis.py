@@ -60,6 +60,7 @@ class BaseAnalysis(ABC):
         "pipeline": ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"],
         "empty_channels": [0, 63, 64, 127, 128, 191, 192, 256],
         "allowance": 5,
+        "pitch": 0.055,
         "chmin": 0,
         "chmax": 256,
         "time_threshold": 18,   # ADC threshold of the delay search
