@@ -6,6 +6,7 @@ Example analysis: mean cleaned ADC against channel, over all runs.
 """
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as tck
 import pandas as pd
 import numpy as np
 
@@ -23,6 +24,8 @@ class AdcVsChannel(BaseAnalysis):
     # One file with x triggers
     # Return the average over triggers
     def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
+        # if x > 9.2:
+        #     return
         # ADC MEAN PER CHANNEL
         mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
         self.add(ADC_CLEAN, mean_per_channel, z=z, x=x)
@@ -37,7 +40,7 @@ class AdcVsChannel(BaseAnalysis):
         d = self.get(ADC_CLEAN)
         # Average over the runs for each channel
         by_channel = d.groupby("channel")["value"].agg(["mean", "sem"])
-
+        
         fig, ax = plt.subplots(1, 1)
         ax.errorbar(by_channel.index, by_channel["mean"], yerr=by_channel["sem"], fmt="o", ms=3)
         ax.set_xlabel("Channel")
@@ -66,17 +69,6 @@ class AdcVsChannel(BaseAnalysis):
             index="x", columns="channel", values="value", aggfunc="mean")
         active = hits.columns[hits.sum() > 0.05 * hits.sum().max()]   # channels with real hits
 
-        fig, ax = plt.subplots(1, 1)
-        for ch in active:
-            ax.plot(hits.index, hits[ch], "-o", ms=2, label=f"Ch {int(ch)}")
-        ax.plot(hits.index, hits.sum(axis=1), "k--", lw=1, label="Sum")
-        ax.legend()
-        ax.set_xlabel("Position in x [mm]")
-        ax.set_ylabel("Hits")
-        ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
-        fig.savefig(self.plotdir / "hits_vs_x.png", dpi=150)
-        plt.close(fig)
-
         # All channels at once
         fig, ax = plt.subplots(1, 1)
         mesh = ax.pcolormesh(hits.index, hits.columns, hits.T.to_numpy(), shading="nearest")
@@ -84,8 +76,24 @@ class AdcVsChannel(BaseAnalysis):
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("Channel")
         ax.set_ylim(active.min() - 3, active.max() + 3)   # skip the empty channels
+        ax.xaxis.set_minor_locator(tck.AutoMinorLocator())
+        ax.yaxis.set_minor_locator(tck.AutoMinorLocator())
+        ax.tick_params(which="both", width=1, direction="out")   
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
+        ax.set_xlim(7.9, 9.2)
         fig.savefig(self.plotdir / "hits_map.png", dpi=150)
+        plt.close(fig)
+
+        fig, ax = plt.subplots(1, 1)
+        for ch in active:
+            ax.plot(hits.index, hits[ch], "-o", ms=2, label=f"Ch {int(ch)}")
+        # ax.plot(hits.index, hits.sum(axis=1), "k--", lw=1, label="Sum")
+        ax.legend(fontsize='small', ncols=2)
+        ax.set_xlabel("Position in x [mm]")
+        ax.set_ylabel("Hits")
+        ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
+        ax.set_xlim(7.9, 9.2)
+        fig.savefig(self.plotdir / "hits_vs_x.png", dpi=150)
         plt.close(fig)
 
 
