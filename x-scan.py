@@ -122,7 +122,7 @@ class XScan(BaseAnalysis):
             # Check: is the fit good?
             # Consider adding a more specific check here
             if (abs(popt[0] - y.max()) < y.max()/10):
-                print(f"ch {ch}")
+                print(f"Channel position extracted from ch {ch}")
                 ch_to_x[ch] = popt[1]
                 # Now define the other channels with pitch
                 for ch2 in active:

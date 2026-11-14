@@ -17,7 +17,7 @@ hit_threshold = 20
 # Delay search
 time_threshold = 18
 default_delay = 50
-default_time_window = 5.0
+default_time_window = 10.0
 # Just uses default values
 use_default_delay = true
 
