@@ -135,7 +135,6 @@ class XScan(BaseAnalysis):
         fig, ax = plt.subplots(1, 1)
         for ch in active:
             ax.plot(hits.index, hits[ch], "-o", ms=2, label=f"Ch {int(ch)}")
-        ax.legend(fontsize='small', ncols=2)
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("Hits")
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
