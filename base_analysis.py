@@ -108,6 +108,8 @@ class BaseAnalysis(ABC):
         "chunk_size": 100,
         "zmin": None,       # cut on the z position, leave out for no cut
         "zmax": None,
+        "xmin": None,       # For plot limits
+        "xmax": None,
         "style": "",        # path to a matplotlib style file, empty for the default
     }
 
@@ -118,7 +120,7 @@ class BaseAnalysis(ABC):
                                    "use_default_delay", "zmin", "zmax")
     # Keys that only plot() or the data reading uses. A change recomputes nothing.
     # Every other key is assumed to be used by process(), so a change runs process() again.
-    PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size")
+    PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size", "xmin", "xmax")
 
     # Names of the quantities stored in self.results, e.g. QUANTITIES = (MEAN_ADC, FIT_SIGMA)
     QUANTITIES: tuple[str, ...] = ()
@@ -134,7 +136,7 @@ class BaseAnalysis(ABC):
             plt.style.use(self.cfg.style)
 
         self.plotdir = isdir(self.args.plots)
-        self.subdir = isdir(self.plotdir / "adcs")
+        self.subdir = isdir(self.plotdir / "cleaning")
         self.paths = sorted(self.args.data + (read_runlist(self.args.runlist) if self.args.runlist else []))
         # Without data files the existing chunk caches are used as they are
         # A chunk file (name_003.parquet) means only that chunk, the base name (name.parquet) means all of them

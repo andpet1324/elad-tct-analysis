@@ -44,32 +44,11 @@ class XScan(BaseAnalysis):
     def plot(self) -> None:
         # Define subdirs
         fitdir = isdir(self.plotdir / "fits")
+        hitsdir = isdir(self.plotdir / "hits")
+        adcdir = isdir(self.plotdir / "adc")
 
-        # ADC MEAN PER CHANNEL
-        d = self.get(ADC_CLEAN)
-        # Average over the runs for each channel
-        by_channel = d.groupby("channel")["value"].agg(["mean", "sem"])
-        
-        fig, ax = plt.subplots(1, 1)
-        ax.errorbar(by_channel.index, by_channel["mean"], yerr=by_channel["sem"], fmt="o", ms=3)
-        ax.set_xlabel("Channel")
-        ax.set_ylabel("Mean ADC")
-        ax.set_title("Full x-scan")
-        fig.savefig(self.plotdir / "adc_vs_channel.png", dpi=150)
-        plt.close(fig)
-        
-        # HITS PER CHANNEL
-        d = self.get(CHANNEL_HITS)
-        # Average over the files (positions) for each channel
-        by_channel = d.groupby("channel")["value"].agg(["mean", "sem"])
-
-        fig, ax = plt.subplots(1, 1)
-        ax.errorbar(by_channel.index, by_channel["mean"], yerr=by_channel["sem"], fmt="o", ms=3)
-        ax.set_xlabel("Channel")
-        ax.set_ylabel("Hits")
-        ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
-        fig.savefig(self.plotdir / "hits_vs_channel.png", dpi=150)
-        plt.close(fig)
+        """" --------------- HITS PLOTS ---------------"""
+        # We run hits first to get ch_to_x map
 
         # HITS PER X POSITION
         d = self.get(CHANNEL_HITS)
@@ -89,8 +68,8 @@ class XScan(BaseAnalysis):
         ax.yaxis.set_minor_locator(tck.AutoMinorLocator())
         ax.tick_params(which="both", width=1, direction="out")   
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
-        ax.set_xlim(7.9, 9.2)
-        fig.savefig(self.plotdir / "hits_map.png", dpi=150)
+        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+        fig.savefig(hitsdir / "hits_map.png", dpi=150)
         plt.close(fig)
 
         # Get the channel to position mapping
@@ -138,17 +117,71 @@ class XScan(BaseAnalysis):
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("Hits")
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
-        ax.set_xlim(7.9, 9.2)
+        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
 
         ax_top = ax.twiny()
         ax_top.set_xlim(ax.get_xlim())
-        visible = [(ch, x) for ch, x in ch_to_x.items() if 7.9 <= x <= 9.2]
+        visible = [(ch, x) for ch, x in ch_to_x.items() if self.cfg.xmin <= x <= self.cfg.xmax]
         ax_top.set_xticks([x for _, x in visible])
         ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
         ax_top.tick_params(axis="x", labelrotation=90, labelsize="x-small")
         ax_top.set_xlabel("Channel")
 
-        fig.savefig(self.plotdir / "hits_vs_x.png", dpi=150)
+        fig.savefig(hitsdir / "hits_vs_x.png", dpi=150)
+        plt.close(fig)
+
+        """" --------------- ADC PLOTS ---------------"""
+
+        # ADC MEAN PER CHANNEL
+        d = self.get(ADC_CLEAN)
+        # Average over the runs for each channel
+        d = d.astype({"x": float, "channel": float, "value": float, "error": float})
+
+        adc_x = d.pivot_table(index="x", columns="channel", values="value", aggfunc="mean")
+        err_x = d.pivot_table(index="x", columns="channel", values="error", aggfunc="mean")
+        err_x = err_x.reindex(index=adc_x.index, columns=adc_x.columns)
+
+        fig, ax = plt.subplots(1, 1)
+        for ch in active:
+            ax.errorbar(adc_x.index, adc_x[ch], yerr=err_x[ch], fmt="-o", ms=2, label=f"Ch {int(ch)}")
+        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+
+        ax_top = ax.twiny()
+        ax_top.set_xlim(ax.get_xlim())
+        ax_top.set_xticks([x for _, x in visible])
+        ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
+        ax_top.tick_params(axis="x", labelrotation=90, labelsize="x-small")
+        ax_top.set_xlabel("Channel")
+
+        ax.set_xlabel("Position in x [mm]")
+        ax.set_ylabel("ADC")
+        fig.savefig(adcdir / "adc_vs_channel.png", dpi=150)
+        plt.close(fig)
+
+        # CLEANING
+        # Do the same thing but clean values with errors larger than 1
+        # and adc above 2
+
+        clean_mask_err = err_x < 1 # noisy events
+        clean_mask_adc = adc_x < 2 # outliers
+        adc_x = adc_x[clean_mask_err][clean_mask_adc]
+        err_x = err_x[clean_mask_err][clean_mask_adc]
+
+        fig, ax = plt.subplots(1, 1)
+        for ch in active:
+            ax.errorbar(adc_x.index, adc_x[ch], yerr=err_x[ch], fmt="-o", ms=2, label=f"Ch {int(ch)}")
+        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+
+        ax_top = ax.twiny()
+        ax_top.set_xlim(ax.get_xlim())
+        ax_top.set_xticks([x for _, x in visible])
+        ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
+        ax_top.tick_params(axis="x", labelrotation=90, labelsize="x-small")
+        ax_top.set_xlabel("Channel")
+
+        ax.set_xlabel("Position in x [mm]")
+        ax.set_ylabel("ADC")
+        fig.savefig(adcdir / "adc_vs_channel_clean.png", dpi=150)
         plt.close(fig)
 
 
