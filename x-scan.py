@@ -22,7 +22,7 @@ CHANNEL_HITS = "channel_hits" # averaged over run per channel: value = hit count
 
 class XScan(BaseAnalysis):
     CACHE_TAG = "adc_vs_channel"
-    CACHE_VERSION = 1   # 2: channel_hits added, stored with a channel column
+    CACHE_VERSION = 2   # 2: voltage key on adc_clean
     QUANTITIES = (ADC_CLEAN,CHANNEL_HITS,)
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
     PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
@@ -34,7 +34,7 @@ class XScan(BaseAnalysis):
         #     return
         # ADC MEAN PER CHANNEL
         mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
-        self.add(ADC_CLEAN, mean_per_channel, z=z, x=x)
+        self.add(ADC_CLEAN, mean_per_channel, z=z, x=x, voltage=df["voltage"].iloc[0])
 
         # HITS (|ADC| over hit_threshold) PER CHANNEL
         hits_per_channel = self.is_hit(df).groupby(df["channel"]).sum().rename("value").reset_index()
@@ -135,28 +135,17 @@ class XScan(BaseAnalysis):
         # ADC MEAN PER CHANNEL
         d = self.get(ADC_CLEAN)
         # Average over the runs for each channel
-        d = d.astype({"x": float, "channel": float, "value": float, "error": float})
+        d = d.astype({"x": float, "channel": float, "value": float, "error": float, "z": float, "voltage": float})
 
         adc_x = d.pivot_table(index="x", columns="channel", values="value", aggfunc="mean")
         err_x = d.pivot_table(index="x", columns="channel", values="error", aggfunc="mean")
         err_x = err_x.reindex(index=adc_x.index, columns=adc_x.columns)
 
-        fig, ax = plt.subplots(1, 1)
-        for ch in active:
-            ax.errorbar(adc_x.index, adc_x[ch], yerr=err_x[ch], fmt="-o", ms=2, label=f"Ch {int(ch)}")
-        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+        # z and voltage of the scan for the titles
+        zs, volts = d["z"].unique(), d["voltage"].unique()
+        title = f"z = {', '.join(f'{v:.2f}' for v in sorted(zs))} mm, V = {', '.join(f'{v:g}' for v in sorted(volts))} V"
 
-        ax_top = ax.twiny()
-        ax_top.set_xlim(ax.get_xlim())
-        ax_top.set_xticks([x for _, x in visible])
-        ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
-        ax_top.tick_params(axis="x", labelrotation=90, labelsize="x-small")
-        ax_top.set_xlabel("Channel")
-
-        ax.set_xlabel("Position in x [mm]")
-        ax.set_ylabel("ADC")
-        fig.savefig(adcdir / "adc_vs_channel.png", dpi=150)
-        plt.close(fig)
+        self.plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png")
 
         # CLEANING
         # Do the same thing but clean values with errors larger than 1
@@ -167,10 +156,22 @@ class XScan(BaseAnalysis):
         adc_x = adc_x[clean_mask_err][clean_mask_adc]
         err_x = err_x[clean_mask_err][clean_mask_adc]
 
+        self.plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel_clean.png")
+
+    def plot_adc(self, adc_x, err_x, active, visible, title, path) -> None:
+        """Mean ADC vs x, one colour per channel, error as a faint band, channel numbers on top"""
+        cmap = plt.get_cmap("turbo", len(active))   # discrete: one colour per channel
         fig, ax = plt.subplots(1, 1)
-        for ch in active:
-            ax.errorbar(adc_x.index, adc_x[ch], yerr=err_x[ch], fmt="-o", ms=2, label=f"Ch {int(ch)}")
+        colors = {}
+        for i, ch in enumerate(active):
+            colors[ch] = cmap(i)
+            y, err = adc_x[ch], err_x[ch]
+            ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
+            ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=0.2, lw=0)
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+        ax.set_xlabel("Position in x [mm]")
+        ax.set_ylabel("ADC")
+        ax.set_title(title, pad=40)
 
         ax_top = ax.twiny()
         ax_top.set_xlim(ax.get_xlim())
@@ -178,10 +179,7 @@ class XScan(BaseAnalysis):
         ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
         ax_top.tick_params(axis="x", labelrotation=90, labelsize="x-small")
         ax_top.set_xlabel("Channel")
-
-        ax.set_xlabel("Position in x [mm]")
-        ax.set_ylabel("ADC")
-        fig.savefig(adcdir / "adc_vs_channel_clean.png", dpi=150)
+        fig.savefig(path, dpi=150)
         plt.close(fig)
 
 
