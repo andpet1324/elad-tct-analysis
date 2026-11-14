@@ -32,4 +32,7 @@ chunk_size = 100
 
 pitch = 0.055 # mm
 
+# Channel to x position [mm]. Written by x-scan.py, other scans can use it as cfg.ch_to_x
+ch_to_x = {86 = 7.96, 87 = 8.015}
+
 style = "/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle"

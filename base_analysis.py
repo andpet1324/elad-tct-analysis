@@ -25,7 +25,9 @@ See adc_vs_channel_ana.py for a minimal example and README.md for the details.
 
 import argparse
 import pathlib
+import json
 import pickle
+import re
 import time
 from contextlib import contextmanager
 import tomllib
@@ -60,12 +62,41 @@ def read_runlist(path: pathlib.Path) -> list[pathlib.Path]:
     return [pathlib.Path(line) for line in lines if line]
 
 
+def plain(value: Any) -> Any:
+    """Numpy numbers to Python numbers, and dict keys that are whole numbers (86.0, "86") to ints"""
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, dict):
+        return {(int(k) if re.fullmatch(r"\d+(\.0+)?", str(k)) else k): plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [plain(v) for v in value]
+    return value
+
+
+def to_toml(value: Any) -> str:
+    """A value as TOML text. Dicts become inline tables: {86 = 7.96, 87 = 8.015}"""
+    value = plain(value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(to_toml(v) for v in value) + "]"
+    if isinstance(value, dict):
+        key = lambda k: str(k) if re.fullmatch(r"[A-Za-z0-9_-]+", str(k)) else json.dumps(str(k))
+        return "{" + ", ".join(f"{key(k)} = {to_toml(v)}" for k, v in value.items()) + "}"
+    raise TypeError(f"Cannot write {value!r} ({type(value).__name__}) to a TOML file")
+
+
 class BaseAnalysis(ABC):
     DEFAULTS: dict[str, Any] = {
         "pipeline": ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"],
         "empty_channels": [0, 63, 64, 127, 128, 191, 192, 256],
         "allowance": 5,
         "pitch": 0.055,
+        "ch_to_x": {},          # channel -> x position [mm], saved by the x-scan with update_config()
         "chmin": 0,
         "chmax": 256,
         "time_threshold": 18,   # ADC threshold of the delay search
@@ -160,6 +191,45 @@ class BaseAnalysis(ABC):
         """True for the entries whose |adc_clean| is above hit_threshold"""
         return df["adc_clean"].abs() > self.cfg.hit_threshold
 
+    def update_config(self, **values: Any) -> None:
+        """
+        Save values in the config file (-conf) and in self.cfg, so that other analyses can use them:
+        self.update_config(ch_to_x={96: 8.01, 97: 8.065}). The keys must be in DEFAULTS.
+
+        The file is edited as text, so comments and other lines stay. A key that is already there must be a
+        single line `key = value` and is replaced, a comment after its value is lost. A new key is added at the
+        end of the file, so the config must not have [tables]. Nothing is written unless the new file reads
+        back with the values that were given.
+        """
+        path = self.args.config
+        if path is None:
+            raise SystemExit("Saving to the config needs a config file, pass -conf")
+        unknown = set(values) - set(self.DEFAULTS)
+        if unknown:
+            raise KeyError(f"Unknown config keys {sorted(unknown)}, known: {sorted(self.DEFAULTS)}")
+
+        lines = path.read_text().splitlines()
+        for key, value in values.items():
+            new = f"{key} = {to_toml(value)}"
+            found = [i for i, line in enumerate(lines) if re.match(rf"\s*{re.escape(key)}\s*=", line)]
+            if found:
+                lines[found[0]] = new
+            else:
+                lines.append(new)
+        text = "\n".join(lines) + "\n"
+
+        parsed = tomllib.loads(text)   # raises if the edit broke the file
+        for key, value in values.items():
+            if plain(parsed.get(key)) != plain(tomllib.loads(f"{key} = {to_toml(value)}")[key]):
+                raise ValueError(f"Could not save {key} in {path}, does it sit in a [table]?")
+        tmp = path.with_name(path.name + ".tmp")   # so an interrupted write never leaves a broken config
+        tmp.write_text(text)
+        tmp.replace(path)
+
+        for key, value in values.items():
+            setattr(self.cfg, key, plain(value))
+        print(f"Saved {', '.join(values)} in {path}")
+
     def _check(self, quantity: str) -> None:
         if self.QUANTITIES and quantity not in self.QUANTITIES:
             raise KeyError(f"Unknown quantity {quantity!r}, known: {list(self.QUANTITIES)}")
@@ -210,7 +280,7 @@ class BaseAnalysis(ABC):
             if unknown:
                 raise SystemExit(f"Unknown keys {sorted(unknown)} in {path}, known: {sorted(values)}")
             values.update(from_file)
-        return SimpleNamespace(**values)
+        return SimpleNamespace(**{k: plain(v) for k, v in values.items()})
 
     def cache_data(self) -> None:
         """Build the parsed data caches chunk by chunk to not overload the memory"""

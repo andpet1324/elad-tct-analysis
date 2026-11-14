@@ -151,6 +151,30 @@ zmin = 31.0
 DEFAULTS = {**BaseAnalysis.DEFAULTS, "my_threshold": 5.0}
 ```
 
+### Saving a result in the config
+
+An analysis can write values into the config file, so that other analyses can use them later:
+
+```python
+self.update_config(ch_to_x={96: 8.01, 97: 8.065})   # in plot() or process()
+```
+
+The next analysis that is started with the same `-conf` file reads it as `self.cfg.ch_to_x`. The first
+user is `ch_to_x`, the channel to x position [mm] mapping that `x-scan.py` saves. The channel numbers are
+ints in Python, and are written as `ch_to_x = {96 = 8.01, 97 = 8.065}` in the file.
+
+- The key must be in `DEFAULTS`, and `-conf` must be given.
+- The file is edited as text, so comments and other lines stay. An existing `key = value` line is replaced
+  (a comment after its value is lost), a new key is added at the end. The config must be flat, without
+  `[tables]`.
+- Nothing is written unless the new file reads back with the values you gave. The write goes through a
+  temporary file, so an interrupted run does not leave a broken config.
+- The value is saved by running the analysis, so it is in the config only after that analysis has finished
+  its `plot()`.
+- Another analysis that uses the value in `process()` gets a new result when it changes (it is a process key
+  there). An analysis that writes the value in `plot()` should list the key in `PLOT_KEYS`, as `x-scan.py`
+  does, otherwise its own next run counts it as a changed setting.
+
 ## Caches
 
 There are three kinds, all written next to the path you give in `-cache`. Each one is only redone when something

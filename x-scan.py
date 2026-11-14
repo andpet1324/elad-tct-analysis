@@ -24,6 +24,8 @@ class XScan(BaseAnalysis):
     CACHE_TAG = "adc_vs_channel"
     CACHE_VERSION = 1   # 2: channel_hits added, stored with a channel column
     QUANTITIES = (ADC_CLEAN,CHANNEL_HITS,)
+    # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
+    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
 
     # One file with x triggers
     # Return the average over triggers
@@ -97,14 +99,12 @@ class XScan(BaseAnalysis):
         for ch in active:
             # Fit a box-gaussian and find the mean value. If the fit don't
             # meet conditions, move to next channel.
-            # Conditions are: ...
             s = hits[ch].sort_index()
             x = s.index.to_numpy(dtype=float)
             y = s.to_numpy(dtype=float)
             above_x = x[y > y.max() / 2]
             w0 = above_x.max() - above_x.min() if above_x.size > 1 else self.cfg.pitch / 2
-            x0 = x[np.argmax(y)]  # peak position in mm
-            # Last parameter (offset) starts at the baseline
+            x0 = x[np.argmax(y)]
             p0 = [y.max(), x0, w0, max(w0 / 10, np.diff(x).min()), y.min()]
             try:
                 with warnings.catch_warnings():
@@ -129,20 +129,20 @@ class XScan(BaseAnalysis):
                     ch_to_x[ch2] = popt[1] + self.cfg.pitch * (ch2 - ch)
                 break
 
+        # Save the mapping in the config, other scans can use it as cfg.ch_to_x
+        self.update_config(ch_to_x=ch_to_x)
+
         fig, ax = plt.subplots(1, 1)
         for ch in active:
             ax.plot(hits.index, hits[ch], "-o", ms=2, label=f"Ch {int(ch)}")
-        # ax.plot(hits.index, hits.sum(axis=1), "k--", lw=1, label="Sum")
         ax.legend(fontsize='small', ncols=2)
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("Hits")
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
         ax.set_xlim(7.9, 9.2)
 
-        # Second x-axis on top, with channel numbers at their peak positions
         ax_top = ax.twiny()
-        ax_top.set_xlim(ax.get_xlim())  # must match the bottom axis
-        # Keep only channels whose peak falls inside the visible range
+        ax_top.set_xlim(ax.get_xlim())
         visible = [(ch, x) for ch, x in ch_to_x.items() if 7.9 <= x <= 9.2]
         ax_top.set_xticks([x for _, x in visible])
         ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
