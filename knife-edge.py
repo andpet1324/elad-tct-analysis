@@ -119,11 +119,11 @@ class KnifeEdge(BaseAnalysis):
             with warnings.catch_warnings():
                 warnings.simplefilter("error", RuntimeWarning)
                 warnings.simplefilter("error", OptimizeWarning)
-                coefs, cov = np.polyfit(zs_g, sig_g, 2, w=1/err_g cov="unscaled")
-                residuals = sig - np.polyval(coefs, zs_g)
+                coefs, cov = np.polyfit(zs_g, sig_g, 2, w=1/err_g, cov="unscaled")
+                residuals = sig_g - np.polyval(coefs, zs_g)
                 mad = np.median(np.abs(residuals - np.median(residuals)))
                 mask = np.abs(residuals) < 3 * 1.4826 * mad
-                coefs, _ = np.polyfit(zs_g[mask], sig_g[mask], 2, cov=True)
+                coefs, _ = np.polyfit(zs_g[mask], sig_g[mask], 2, w=1/err_g[mask], cov="unscaled")
                 x = np.linspace(min(zs_g), max(zs_g), 100)
                 yfit = np.polyval(coefs, x)
                 ax_zs.plot(x, 1000 * yfit, label = rf"2nd order poly fit with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
@@ -132,6 +132,7 @@ class KnifeEdge(BaseAnalysis):
         ax_zs.set_xlabel("Position in z [mm]")
         ax_zs.set_ylabel(rf"Edge fit $\sigma$ [µm]")
         ax_zs.set_title("Knife-edge scan")
+        ax_zs.set_ylim(-10, 70)
         fig.savefig(self.plotdir / "sigma_vs_z.png", dpi=150)
         plt.close()
 
