@@ -33,16 +33,16 @@ class BiasScan(BaseAnalysis):
         voltages = d.groupby("voltage")
         # cmap = plt.get_cmap("turbo", len(active))   # discrete: one colour per channel
         for volt, v_df in voltages:
-            zs = v_df.groupby("z")
-            for z, z_df in zs:
-                sigmas = {} # Holds the width of the knife-edge scan
+            sigmas = {}   # channel -> [(z, sigma)], the width from the fit
+            for z, z_df in v_df.groupby("z"):
                 chs = z_df.groupby("channel")
                 for ch_id, ch_df in chs:
                     fig_fit, ax_fit = plt.subplots(1,1)
                     # Fit signal and get the stdev
-                    keys = sorted(ch_df) # increasing x
-                    x = np.array(keys, dtype=float)
-                    raw_adc = np.array([ch_df[k] for k in keys], dtype=float)
+                    # Mean ADC at each x, sorted by increasing x, without missing values
+                    s = ch_df.astype({"x": float, "value": float}).groupby("x")["value"].mean().dropna()
+                    x = s.index.to_numpy()
+                    raw_adc = s.to_numpy()
                     mean_adc = np.abs(raw_adc)
                     ax_fit.plot(x, raw_adc, "o", ms=3, label=f"z = {z:.2f} mm")
                     argmax = np.argmax(mean_adc) # SIGNAL IS ABS SO MAX
@@ -62,11 +62,11 @@ class BiasScan(BaseAnalysis):
                                 p0=p0, bounds=(lo, hi), maxfev=10000)
                         xf = np.linspace(x.min(), x.max(), 500)
                         ax_fit.plot(xf, np.sign(raw_adc.sum()) * box_gaussian(xf, *popt), "--")
-                        zs[ch_id].append(z)
-                        sigmas[ch_id].append(abs(popt[3]))
+                        sigmas.setdefault(ch_id, []).append((z, abs(popt[3])))
                     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                         print(f"Fit failed with {err}")
-                    fig_fit.savefig(fitdir / f"knife_z_{z}_volt_{volt}_ch_{ch_id}", dpi=150)
+                    fig_fit.savefig(fitdir / f"bias_z_{z:.2f}_volt_{volt:g}_ch_{int(ch_id)}.png", dpi=150)
+                    plt.close(fig_fit)
 
         
 
