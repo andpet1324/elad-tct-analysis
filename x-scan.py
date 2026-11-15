@@ -191,7 +191,7 @@ class XScan(BaseAnalysis):
         frac = {}
         err_frac = {}
         for ch in active:
-            cols = [ch - 1, ch, ch + 1]
+            cols = [ch - 2, ch - 1, ch, ch + 1, ch + 2]
             q = charge.reindex(columns=cols)
             e = charge_err.reindex(columns=cols)
 
@@ -210,8 +210,8 @@ class XScan(BaseAnalysis):
             err_frac[ch] = np.sqrt(var)
         frac = pd.DataFrame(frac)
         err_frac = pd.DataFrame(err_frac)
-        self.plot_adc(frac, err_frac, active, visible, title, adcdir / "eta-function.png",
-                      ylabel="Charge fraction in channel")
+        self.plot_adc(100 * frac, 100 * err_frac, active, visible, title, adcdir / "eta-function.png",
+                      ylabel="Charge fraction [%]")
 
 
     def plot_adc(self, adc_x, err_x, active, visible, title, path, ylabel="ADC") -> None:
@@ -222,8 +222,8 @@ class XScan(BaseAnalysis):
         for i, ch in enumerate(active):
             colors[ch] = cmap(i)
             y, err = adc_x[ch], err_x[ch]
-            # ax.errorbar(adc_x.index, y, yerr=err, color=colors[ch])
-            ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
+            ax.errorbar(adc_x.index, y, yerr=err, color=colors[ch])
+            # ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
             # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=1, lw=0)
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
         ax.set_xlabel("Position in x [mm]")
