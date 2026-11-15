@@ -164,6 +164,9 @@ class XScan(BaseAnalysis):
 
         self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png")
 
+        # Charge fractions need the absolute values, not the per-channel normalized ones
+        charge, charge_err = adc_clean.abs(), err_clean.copy()
+
         # Normalizing
         err_clean = err_clean.abs() / adc_clean.abs().max()
         adc_clean = adc_clean.abs() / adc_clean.abs().max()
@@ -189,11 +192,14 @@ class XScan(BaseAnalysis):
         err_frac = {}
         for ch in active:
             cols = [ch - 1, ch, ch + 1]
-            q = adc_clean.reindex(columns=cols)
-            e = err_clean.reindex(columns=cols)
+            q = charge.reindex(columns=cols)
+            e = charge_err.reindex(columns=cols)
 
             S = q.sum(axis=1, min_count=3)   # NaN if any of the three is missing
             f = q[ch] / S
+            # Only where the beam is on this strip, elsewhere it is noise over noise
+            near = (f.index.to_series() - ch_to_x[ch]).abs() < self.cfg.pitch
+            f = f.where(near.to_numpy())
 
             # Error on f = Q_c / (Q_l + Q_c + Q_r), uncorrelated per-channel errors
             s_c2 = e[ch] ** 2
@@ -204,10 +210,11 @@ class XScan(BaseAnalysis):
             err_frac[ch] = np.sqrt(var)
         frac = pd.DataFrame(frac)
         err_frac = pd.DataFrame(err_frac)
-        self.plot_adc(frac, err_frac, active, visible, title, adcdir / "eta-function.png")
+        self.plot_adc(frac, err_frac, active, visible, title, adcdir / "eta-function.png",
+                      ylabel="Charge fraction in channel")
 
 
-    def plot_adc(self, adc_x, err_x, active, visible, title, path) -> None:
+    def plot_adc(self, adc_x, err_x, active, visible, title, path, ylabel="ADC") -> None:
         """Mean ADC vs x, one colour per channel, error as a faint band, channel numbers on top"""
         cmap = plt.get_cmap("turbo", len(active))   # discrete: one colour per channel
         fig, ax = plt.subplots(1, 1)
@@ -220,7 +227,7 @@ class XScan(BaseAnalysis):
             # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=1, lw=0)
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
         ax.set_xlabel("Position in x [mm]")
-        ax.set_ylabel("ADC")
+        ax.set_ylabel(ylabel)
         ax.set_title(title, pad=40)
 
         ax_top = ax.twiny()
