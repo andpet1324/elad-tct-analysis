@@ -30,7 +30,7 @@ chunk_size = 100
 # zmin = 31.0
 # zmax = 32.5
 xmin = 7.90
-xmax = 9.20
+xmax = 9.15
 
 pitch = 0.055 # mm
 

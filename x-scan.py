@@ -165,7 +165,7 @@ class XScan(BaseAnalysis):
         self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png")
 
         # Normalizing
-        err_clean = err_clean / adc_clean.min()
+        err_clean = err_clean.abs() / adc_clean.abs().max()
         adc_clean = adc_clean.abs() / adc_clean.abs().max()
         self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_normalized.png")
 
@@ -184,6 +184,29 @@ class XScan(BaseAnalysis):
         fig.savefig(adcdir / "adc_map.png", dpi=150)
         plt.close(fig)
 
+        # Eta-function
+        frac = {}
+        err_frac = {}
+        for ch in active:
+            cols = [ch - 1, ch, ch + 1]
+            q = adc_clean.reindex(columns=cols)
+            e = err_clean.reindex(columns=cols)
+
+            S = q.sum(axis=1, min_count=3)   # NaN if any of the three is missing
+            f = q[ch] / S
+
+            # Error on f = Q_c / (Q_l + Q_c + Q_r), uncorrelated per-channel errors
+            s_c2 = e[ch] ** 2
+            s_side2 = e[ch - 1] ** 2 + e[ch + 1] ** 2
+            var = ((1 - f) ** 2 * s_c2 + f ** 2 * s_side2) / S ** 2
+
+            frac[ch] = f
+            err_frac[ch] = np.sqrt(var)
+        frac = pd.DataFrame(frac)
+        err_frac = pd.DataFrame(err_frac)
+        self.plot_adc(frac, err_frac, active, visible, title, adcdir / "eta-function.png")
+
+
     def plot_adc(self, adc_x, err_x, active, visible, title, path) -> None:
         """Mean ADC vs x, one colour per channel, error as a faint band, channel numbers on top"""
         cmap = plt.get_cmap("turbo", len(active))   # discrete: one colour per channel
@@ -192,8 +215,9 @@ class XScan(BaseAnalysis):
         for i, ch in enumerate(active):
             colors[ch] = cmap(i)
             y, err = adc_x[ch], err_x[ch]
+            # ax.errorbar(adc_x.index, y, yerr=err, color=colors[ch])
             ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
-            # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=0.2, lw=0)
+            # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=1, lw=0)
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("ADC")
