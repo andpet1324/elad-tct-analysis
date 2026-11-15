@@ -3,24 +3,27 @@ Template base class for the TCT scan analyses.
 
 NOT TESTED, meant to be reviewed.
 
-    parse args + config -> cache raw data -> find delay -> clean every run (pipeline of steps,
-    see cleaning.py) -> process every cleaned run -> plot
+    parse args + config -> cache raw data -> find delay -> for every run: clean (pipeline of
+    steps, see cleaning.py) and extract the numbers -> results cache -> plot
+
+The numbers every analysis needs are extracted here, in extract(): ADC_CLEAN, CHANNEL_HITS
+and INTEGRALS. They are the same for all analyses, so all of them share one results cache and
+a new analysis only needs a plot().
 
 Settings come from a TOML config file (-conf), on top of DEFAULTS below.
 A key in the file that is not in DEFAULTS is an error, to catch typos.
 A subclass adds its own keys by extending DEFAULTS.
 
-Each stage has its own cache, so changing a setting only redoes what depends on it:
-    CLEAN_KEYS   changes the cleaned data -> clean everything again (slow)
-    other keys   used by process() (hit_threshold, ...) -> process() again on the cleaned data (fast)
-    PLOT_KEYS    only used by plot() -> nothing is recomputed, just plot
+The results are cached. A change of any setting except PLOT_KEYS means a new run of the analysis.
+PLOT_KEYS are only used by plot(), so changing them only plots again.
 
 A concrete analysis implements:
-    QUANTITIES     names of what you store, e.g. ("mean_adc", "fit_sigma")
-    process()      self.add(quantity, df, **keys) for the numbers of one cleaned run
-    plot()         make plots from the results
+    plot()         make plots from the results, self.get(ADC_CLEAN) etc.
+and optionally:
+    QUANTITIES     names of extra quantities you store, e.g. ("fit_sigma",)
+    process()      self.add(quantity, df, **keys) for the extra numbers of one cleaned run
 
-See adc_vs_channel_ana.py for a minimal example and README.md for the details.
+See x-scan.py for an example and README.md for the details.
 """
 
 import argparse
@@ -48,6 +51,12 @@ from cleaning import Context, pipeline_steps, run_pipeline
 
 
 LOAD, ANALYZE, PLOT = "Loading data", "Analyzing", "Plotting"
+
+# The quantities extract() stores for every run
+ADC_CLEAN = "adc_clean"       # per channel: value = mean adc_clean, error = its standard error
+CHANNEL_HITS = "channel_hits" # per channel: value = number of hits (|adc_clean| > hit_threshold)
+INTEGRALS = "integrals"       # per run: value = mean over triggers of the sum over chmin..chmax, error = its sem
+COMMON = (ADC_CLEAN, CHANNEL_HITS, INTEGRALS)
 
 
 def isdir(dir: pathlib.Path) -> pathlib.Path:
@@ -114,22 +123,20 @@ class BaseAnalysis(ABC):
         "style": "",        # path to a matplotlib style file, empty for the default
     }
 
-    # Keys that change the cleaned data. A change re-cleans all the data. If select_run() uses a key
-    # of your own, add it: CLEAN_KEYS = BaseAnalysis.CLEAN_KEYS + ("my_key",)
-    CLEAN_KEYS: tuple[str, ...] = ("pipeline", "empty_channels", "allowance", "chmin", "chmax",
-                                   "time_threshold", "default_delay", "default_time_window",
-                                   "use_default_delay", "zmin", "zmax")
     # Keys that only plot() or the data reading uses. A change recomputes nothing.
-    # Every other key is assumed to be used by process(), so a change runs process() again.
+    # Every other key changes the results, so a change runs the analysis again.
     PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size", "xmin", "xmax",
                                   "eta_neighbours")
 
-    # Names of the quantities stored in self.results, e.g. QUANTITIES = (MEAN_ADC, FIT_SIGMA)
+    # Names of the extra quantities your process() stores, e.g. QUANTITIES = (FIT_SIGMA,).
+    # The common ones (COMMON) are always there.
     QUANTITIES: tuple[str, ...] = ()
 
     # Bump when the quantities or their keys change, so stale caches are ignored
     CACHE_VERSION = 1
-    CACHE_TAG = "analysis"
+    # Part of the results cache name. Analyses that store the same quantities share a cache,
+    # so keep the default unless your process() stores extras.
+    CACHE_TAG = "results"
 
     def __init__(self, argv: list[str] | None = None) -> None:
         self.args = self.build_parser().parse_args(argv)
@@ -158,17 +165,35 @@ class BaseAnalysis(ABC):
         self.pedestals: pd.DataFrame | None = None
         self.ctx: Context | None = None
         self._frames: list[pd.DataFrame] = []
-        self.cleaned: dict[str, Any] = {}   # runs, empty, delay, sigma_t, see clean_all()
         self.results = pd.DataFrame()   # long table: quantity, value, error + one column per key
 
     # ---------------- To implement ----------------
     @abstractmethod
-    def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
-        """Add the numbers of one cleaned run with self.add"""
-
-    @abstractmethod
     def plot(self) -> None:
         """Make the plots from self.results"""
+
+    # ---------------- Extraction ----------------
+    def extract(self, df: pd.DataFrame, z: float, x: float) -> None:
+        """The numbers every analysis can use, for one cleaned run (one file, one z and x position)"""
+        voltage = df["voltage"].iloc[0]
+
+        per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
+        self.add(ADC_CLEAN, per_channel, z=z, x=x, voltage=voltage)
+
+        hits = self.is_hit(df).groupby(df["channel"]).sum().rename("value").reset_index()
+        self.add(CHANNEL_HITS, hits, z=z, x=x, voltage=voltage)
+
+        # Integral: sum over the channels in the window for each trigger ("run" in the file), then the
+        # mean over the triggers. A plain array, since pandas gives NA and not NaN for a missing value.
+        window = df["channel"].between(self.cfg.chmin, self.cfg.chmax)
+        per_trigger = df[window].groupby("run")["adc_clean"].sum().to_numpy(dtype=float, na_value=np.nan)
+        n = per_trigger.size
+        integral = {"value": per_trigger.mean() if n else np.nan,
+                    "error": per_trigger.std(ddof=1) / np.sqrt(n) if n > 1 else np.nan}
+        self.add(INTEGRALS, integral, z=z, x=x, voltage=voltage)
+
+    def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
+        """Optional: add extra numbers of one cleaned run with self.add (list them in QUANTITIES)"""
 
     # ---------------- Optional hooks ----------------
     def add(self, quantity: str, data: pd.DataFrame | dict, **keys: Any) -> None:
@@ -235,8 +260,9 @@ class BaseAnalysis(ABC):
         print(f"Saved {', '.join(values)} in {path}")
 
     def _check(self, quantity: str) -> None:
-        if self.QUANTITIES and quantity not in self.QUANTITIES:
-            raise KeyError(f"Unknown quantity {quantity!r}, known: {list(self.QUANTITIES)}")
+        known = COMMON + tuple(self.QUANTITIES)
+        if quantity not in known:
+            raise KeyError(f"Unknown quantity {quantity!r}, known: {list(known)}")
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add analysis specific command line arguments"""
@@ -268,7 +294,7 @@ class BaseAnalysis(ABC):
         parser.add_argument("-cache", "--cache", type=pathlib.Path, default=None,
                             help="Cache file (.parquet) for the parsed data")
         parser.add_argument("--rebuild-data", action="store_true", help="Rewrite the data caches")
-        parser.add_argument("--rebuild-ana", action="store_true", help="Ignore the analysis and cleaned data caches, clean everything again")
+        parser.add_argument("--rebuild-ana", action="store_true", help="Ignore the saved results and run the analysis again")
         parser.add_argument("--plot-only", action="store_true",
                             help="Only plot, from the saved results of this analysis. Fails if there are none")
         parser.add_argument("--profile", action="store_true", help="Print where the time went")
@@ -348,11 +374,11 @@ class BaseAnalysis(ABC):
         self.ctx.sigma_t = self.cfg.default_time_window
 
     # ---------------- Analysis ----------------
-    def clean_all(self) -> None:
-        """Clean every run and keep the result, so that process() can be run again without cleaning"""
+    def analyze_all(self) -> None:
+        """Clean every run and extract its numbers, one run at a time so that nothing piles up in memory"""
         self.find_delay()
         self.steps.set_total(len(self.paths) or None)
-        frames, empty = [], []
+        self._frames = []
         for df_id, df in self.iter_runs():
             self.steps.advance()
             if not self.select_run(df):
@@ -360,49 +386,28 @@ class BaseAnalysis(ABC):
             z, x = df["z"].iloc[0], df["x"].iloc[0]
             df = self.clean(df, df_id)
             if df is None:
-                empty.append((df_id, z, x))
-            else:
-                frames.append(df.assign(df_id=df_id))
-        self.cleaned = {"runs": pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(),
-                        "empty": empty, "delay": self.ctx.delay, "sigma_t": self.ctx.sigma_t}
-        self.save_cleaned()
-
-    def process_all(self) -> None:
-        runs = self.cleaned["runs"]
-        if runs.empty:
+                self.on_empty(df_id, z, x)
+                continue
+            with self.timed("extract"):
+                self.extract(df, z, x)
+                self.process(df, df_id, z, x)
+        if not self._frames:
             raise SystemExit("Nothing is left after cleaning, check the cuts in the config")
-        self._frames = []
-        self.steps.set_total(runs["df_id"].nunique())
-        for df_id, df in runs.groupby("df_id", sort=True):
-            self.steps.advance()
-            with self.timed("process"):
-                self.process(df.drop(columns="df_id"), df_id, df["z"].iloc[0], df["x"].iloc[0])
-        for df_id, z, x in self.cleaned["empty"]:
-            self.on_empty(df_id, z, x)
         self.results = pd.concat(self._frames, ignore_index=True)
+        self._frames = []
 
     # ---------------- Caches ----------------
-    def _params(self) -> tuple[dict, dict]:
-        """(what the cleaned data depends on, what process() depends on)"""
-        clean = {k: getattr(self.cfg, k) for k in self.CLEAN_KEYS}
-        clean["fast_common_mode"] = self.args.fast_common_mode
-        later = {k: v for k, v in vars(self.cfg).items() if k not in self.CLEAN_KEYS + self.PLOT_KEYS}
-        return clean, later
+    def _params(self) -> dict:
+        """The settings the results depend on: every config key except the plot ones"""
+        params = {k: v for k, v in vars(self.cfg).items() if k not in self.PLOT_KEYS}
+        params["fast_common_mode"] = self.args.fast_common_mode
+        return params
 
-    def _cache_path(self, what: str, shared: bool = False) -> pathlib.Path | None:
-        """shared=True: the name has no analysis in it, so every analysis uses the same file"""
+    def analysis_cache_path(self) -> pathlib.Path | None:
         if self.args.cache is None:
             return None
         stem = self.args.cache.stem if self.single_chunk else cache_stem(self.args.cache)
-        tag = "" if shared else f"{self.CACHE_TAG}{self.cache_key()}_"
-        return self.args.cache.with_name(f"{stem}_{tag}{what}.pkl")
-
-    def analysis_cache_path(self) -> pathlib.Path | None:
-        return self._cache_path(f"v{self.CACHE_VERSION}")
-
-    def cleaned_cache_path(self) -> pathlib.Path | None:
-        # Cleaning does not depend on the analysis, so all of them share it
-        return self._cache_path("cleaned", shared=True)
+        return self.args.cache.with_name(f"{stem}_{self.CACHE_TAG}{self.cache_key()}_v{self.CACHE_VERSION}.pkl")
 
     def _read_cache(self, path: pathlib.Path | None, params: dict) -> dict | None:
         """The dict pickled in `path`, or None, with the reason printed, if it cannot be used"""
@@ -430,12 +435,12 @@ class BaseAnalysis(ABC):
         return None
 
     def load_results(self) -> bool:
-        clean, later = self._params()
-        cache = self._read_cache(self.analysis_cache_path(), {**clean, **later})
+        cache = self._read_cache(self.analysis_cache_path(), self._params())
         if cache is None:
             return False
-        if set(cache["results"]["quantity"]) != set(self.QUANTITIES):
-            print(f"Analysis cache holds {sorted(set(cache['results']['quantity']))}, expected {sorted(self.QUANTITIES)}")
+        expected = set(COMMON) | set(self.QUANTITIES)
+        if set(cache["results"]["quantity"]) != expected:
+            print(f"Analysis cache holds {sorted(set(cache['results']['quantity']))}, expected {sorted(expected)}")
             return False
         self.results = cache["results"]
         print(f"Loaded analysis cache {self.analysis_cache_path()}")
@@ -445,34 +450,12 @@ class BaseAnalysis(ABC):
         path = self.analysis_cache_path()
         if path is None:
             return
-        clean, later = self._params()
         try:
             with open(path, "wb") as f:
-                pickle.dump({"params": {**clean, **later}, "results": self.results}, f)
+                pickle.dump({"params": self._params(), "results": self.results}, f)
             print(f"Wrote analysis cache {path}")
         except Exception as err:
             print(f"Writing analysis cache failed with {err}")
-
-    def load_cleaned(self) -> bool:
-        clean, _ = self._params()
-        cache = self._read_cache(self.cleaned_cache_path(), clean)
-        if cache is None:
-            return False
-        self.cleaned = cache
-        self.ctx.delay, self.ctx.sigma_t = cache["delay"], cache["sigma_t"]
-        print(f"Using the cleaned data in {self.cleaned_cache_path()}")
-        return True
-
-    def save_cleaned(self) -> None:
-        path = self.cleaned_cache_path()
-        if path is None:
-            return
-        try:
-            with open(path, "wb") as f:
-                pickle.dump({"params": self._params()[0], **self.cleaned}, f)
-            print(f"Wrote cleaned data {path}")
-        except Exception as err:
-            print(f"Writing cleaned data failed with {err}")
 
     # ---------------- Entry point ----------------
     def run(self) -> None:
@@ -482,19 +465,16 @@ class BaseAnalysis(ABC):
             self.ctx = Context(cfg=self.cfg, pedestals=self.pedestals,
                                fast_common_mode=self.args.fast_common_mode)
 
-            # Cheapest first: finished results, then cleaned data, then the data itself
+            # Finished results first, then the data itself
             have_results = self.load_results()
             if self.args.plot_only and not have_results:
-                raise SystemExit("--plot-only needs saved results for this analysis, run once without it")
-            have_cleaned = not have_results and self.load_cleaned()
-            if not have_results and not have_cleaned and self.args.cache is not None:
+                raise SystemExit("--plot-only needs saved results, run once without it")
+            if not have_results and self.args.cache is not None:
                 self.cache_data()
 
             self.steps.start(ANALYZE, total=None)
             if not have_results:
-                if not have_cleaned:
-                    self.clean_all()
-                self.process_all()
+                self.analyze_all()
                 self.save_results()
                 if self.args.profile:
                     for name, sec in sorted(self.ctx.timings.items(), key=lambda kv: -kv[1]):

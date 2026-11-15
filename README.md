@@ -13,7 +13,8 @@ progress bars and timing. The older scripts (`motor_scan_ana.py`, `bias_motor_sc
 | `load_data.py` | CSV to parquet chunk caches |
 | `progress.py` | The progress bars |
 | `plot_helpers.py` | Plot helpers shared between analyses |
-| `adc_vs_channel_ana.py` | Smallest working example, copy this one |
+| `tct.py` | Runs an analysis by name |
+| `x-scan.py`, `knife-edge.py`, `bias_scan.py` | The analyses. Each one is only a `plot()` |
 
 ## Running
 
@@ -23,8 +24,8 @@ python3 tct.py x-scan data/*.csv -ped pedestals.csv -plots plots/run1 \
 ```
 
 The first argument is the analysis: `x-scan`, `knife-edge` or `bias-scan` (the list is `ANALYSES` in
-`tct.py`). All of them share the cleaned data, so after one has run, another one on the same data and
-config only runs `process()` and `plot()`:
+`tct.py`). The numbers all of them need are extracted in `BaseAnalysis` and saved in one results cache, so
+after one has run, another one on the same data and config goes straight to its `plot()`:
 
 ```
 python3 tct.py knife-edge -ped pedestals.csv -plots plots/run1 -conf config.toml -cache caches/run1.parquet
@@ -41,41 +42,59 @@ Each analysis file can still be run on its own, with the same arguments and with
 | `-plots`, `--plots` | Folder for plots, made if missing. Required. |
 | `-cache`, `--cache` | Base name of the data caches (`caches/run1.parquet`). Without it the CSVs are parsed every time. |
 | `--rebuild-data` | Ignore and rewrite the data caches. |
-| `--rebuild-ana` | Ignore the analysis and cleaned data caches and clean everything again. |
+| `--rebuild-ana` | Ignore the saved results and run the analysis again. |
 | `--fast-common-mode` | Median instead of a fit for the common mode. A plain flag, it takes no value. |
-| `--plot-only` | Only plot, from the saved results of this analysis. Stops with a message if there are none. |
+| `--plot-only` | Only plot, from the saved results. Stops with a message if there are none. |
 | `--profile` | After the analysis, print the seconds spent in each part, slowest first. |
 
 A run goes through three steps, shown in the progress bar: **Loading data**, **Analyzing**, **Plotting**.
 
 ## Writing an analysis
 
-Subclass `BaseAnalysis` and implement `process()` and `plot()`:
+Subclass `BaseAnalysis` and implement `plot()`. The numbers are already extracted:
 
 ```python
-from base_analysis import BaseAnalysis
-
-MEAN_ADC = "mean_adc"
+from base_analysis import BaseAnalysis, ADC_CLEAN
 
 class MyScan(BaseAnalysis):
-    CACHE_TAG = "my_scan"          # part of the analysis cache name
-    QUANTITIES = (MEAN_ADC,)       # the names you are allowed to store
-
-    def process(self, df, df_id, z, x):
-        # df is one run after cleaning
-        per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
-        self.add(MEAN_ADC, per_channel, z=z, x=x)
-
     def plot(self):
-        d = self.get(MEAN_ADC, channel=96)
+        d = self.get(ADC_CLEAN, channel=96)
         ...
 
 if __name__ == "__main__":
     MyScan().run()
 ```
 
-`process()` is called once per run. It must only add numbers to the results, not plot.
-`plot()` is called once at the end and only reads `self.results`.
+Then add it to `ANALYSES` in `tct.py`. `plot()` is called once at the end and only reads `self.results`.
+
+### What is extracted
+
+For every run (one file, so one z and x position), `extract()` in `BaseAnalysis` adds these quantities.
+Import the names from `base_analysis`. All of them have the keys `z`, `x` and `voltage`.
+
+| Name | Keys | `value` | `error` |
+|---|---|---|---|
+| `ADC_CLEAN` | `channel` | mean `adc_clean` | standard error of the mean |
+| `CHANNEL_HITS` | `channel` | number of hits (`abs(adc_clean) > hit_threshold`) | |
+| `INTEGRALS` | | per trigger, `adc_clean` summed over `chmin..chmax`, then the mean over triggers | standard error of the mean |
+
+### Extra numbers
+
+Only if you need something else per run, add `process()` and list the names:
+
+```python
+FIT_SIGMA = "fit_sigma"
+
+class MyScan(BaseAnalysis):
+    QUANTITIES = (FIT_SIGMA,)     # extras you are allowed to store
+    CACHE_TAG = "my_scan"         # so it does not share a results cache with the others
+
+    def process(self, df, df_id, z, x):
+        # df is one run after cleaning
+        self.add(FIT_SIGMA, {"value": ..., "error": ...}, z=z, x=x)
+```
+
+It is called once per run, right after `extract()`, and must only add numbers, not plot.
 
 ### Results
 
@@ -91,8 +110,8 @@ if __name__ == "__main__":
   same for every row. A plain dict such as `{"value": 0.03, "error": 0.002}` adds a single row.
 - `self.get(quantity, **where)` returns the rows of one quantity, filtered by key. A list means any of
   them: `self.get(MEAN_ADC, channel=[95, 96])`. Empty columns are dropped.
-- `QUANTITIES` is checked in `add` and `get`, so a mistyped name is an error that lists the valid names.
-  Leave it empty to allow any name.
+- The names are checked in `add` and `get`, so a mistyped name is an error that lists the valid ones
+  (the extracted ones and your `QUANTITIES`).
 - It is an ordinary DataFrame, so `groupby`, `query`, `pivot` and `to_csv` all work on `self.results`.
 
 ### Hooks
@@ -104,7 +123,8 @@ All optional.
 | `add_arguments(parser)` | Add your own command line arguments. |
 | `select_run(df)` | Return `False` to skip a run before it is cleaned. The default applies `zmin` and `zmax`. |
 | `on_empty(df_id, z, x)` | Called when cleaning left nothing in a run. |
-| `cache_key()` | Text added to the analysis cache name, for example the channel, if results depend on it. |
+| `process(df, df_id, z, x)` | Add extra numbers for one run, see above. |
+| `cache_key()` | Text added to the results cache name, for example the channel, if results depend on it. |
 | `DEFAULTS` | Extend with your own config keys, see below. |
 
 ## Cleaning
@@ -182,13 +202,12 @@ ints in Python, and are written as `ch_to_x = {96 = 8.01, 97 = 8.065}` in the fi
   temporary file, so an interrupted run does not leave a broken config.
 - The value is saved by running the analysis, so it is in the config only after that analysis has finished
   its `plot()`.
-- Another analysis that uses the value in `process()` gets a new result when it changes (it is a process key
-  there). An analysis that writes the value in `plot()` should list the key in `PLOT_KEYS`, as `x-scan.py`
-  does, otherwise its own next run counts it as a changed setting.
+- An analysis that writes the value in `plot()` should list the key in `PLOT_KEYS`, as `x-scan.py`
+  does, otherwise the next run counts it as a changed setting and extracts everything again.
 
 ## Caches
 
-There are three kinds, all written next to the path you give in `-cache`. Each one is only redone when something
+There are two kinds, both written next to the path you give in `-cache`. Each one is only redone when something
 it depends on has changed.
 
 **Data caches**: `<stem>_000.parquet`, `<stem>_001.parquet`, ... Each holds `chunk_size` CSV files, parsed.
@@ -196,42 +215,29 @@ A chunk cache is used only if it is newer than every CSV in it. If one is older,
 the output says which file caused it, with both times. A scan that is still running changes the last chunk
 every time a file arrives, so that chunk is rebuilt each run until the scan is done.
 
-**Cleaned data cache**: `<stem>_cleaned.pkl`. Every run after the cleaning pipeline, kept
-so that `process()` can be run again without cleaning. Cleaning is the slow part. The name has no analysis
-in it, so all analyses use the same file. Because of that an analysis must not drop runs in `select_run()`
-on its own (the `zmin`/`zmax` cut is fine, it is a cleaning key). Do that kind of selection in `process()`.
+**Results cache**: `<stem>_<CACHE_TAG><cache_key>_v<CACHE_VERSION>.pkl`. Holds `self.results`. When it is
+valid, the data is not touched at all and the run goes straight to the plots. The default `CACHE_TAG` is
+`results`, so all analyses that only use the extracted quantities share one file.
 
-**Analysis cache**: `<stem>_<CACHE_TAG><cache_key>_v<CACHE_VERSION>.pkl`. Holds `self.results`. When it is
-valid, the data is not touched at all and the run goes straight to the plots.
+The cleaned runs are not stored. Each run is cleaned, its numbers are extracted, and it is dropped, so memory
+stays at one chunk of data.
 
-Both of the last two are rejected, with the reason printed, when:
+The results cache is rejected, with the reason printed, when:
 - the file does not exist, or `--rebuild-ana` is given,
 - it is older than any data file or the pedestal file,
 - a setting it depends on has changed (the message says which, for example `hit_threshold 20 -> 100`),
-- (analysis cache) it holds other quantities than `QUANTITIES`.
+- it holds other quantities than the extracted ones plus your `QUANTITIES`.
 
-**Bump `CACHE_VERSION`** whenever you change what `process()` stores. That makes the analysis cache a new
-file, and the cleaned data is still used. If you change the cleaning code itself (`cleaning.py`), use
-`--rebuild-ana`, since the code is not part of the check.
+**Bump `CACHE_VERSION`** whenever you change what is extracted. If you change the cleaning code itself
+(`cleaning.py`), use `--rebuild-ana`, since the code is not part of the check.
 
-### Changing settings without redoing everything
+### Changing settings
 
-Config keys are in three groups. What a change costs depends on the group:
-
-| Group | Keys | A change causes |
-|---|---|---|
-| Cleaning (`CLEAN_KEYS`) | `pipeline`, `empty_channels`, `allowance`, `chmin`, `chmax`, `time_threshold`, `default_delay`, `default_time_window`, `use_default_delay`, `zmin`, `zmax`, and `--fast-common-mode` | everything is cleaned again (slow) |
-| Process | `hit_threshold` and every key you add that is in neither of the other groups | `process()` runs again on the cleaned data (seconds) |
-| Plot (`PLOT_KEYS`) | `pitch`, `style`, `plot_run`, `chunk_size` | nothing is recomputed, only `plot()` runs |
-
-Any other key counts as a process key, so a key you forget to sort costs a cheap re-run of `process()` and can
-never give stale results. If your subclass adds a key that only `plot()` uses, add it to `PLOT_KEYS` so that
-changing it recomputes nothing: `PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("my_key",)`. If `select_run()` uses a key
-of your own, add it to `CLEAN_KEYS` the same way.
-
-Example: with a finished analysis, change `hit_threshold = 20` to `hit_threshold = 60` in the config and run
-the same command again. The output says `... not used: setting changed: hit_threshold 20 -> 60`, then
-`Using the cleaned data in ...`, and `process()` and `plot()` run, without cleaning.
+Every config key except the plot keys (`PLOT_KEYS`: `pitch`, `style`, `plot_run`, `chunk_size`, `xmin`,
+`xmax`, `eta_neighbours`) changes the results, so a change runs the whole analysis again, including the
+cleaning (the data caches are still used). A change of a plot key only runs `plot()`. If your subclass adds a
+key that only `plot()` uses, add it to `PLOT_KEYS` so it does not trigger a new run:
+`PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("my_key",)`.
 
 ### Running with only the caches
 
@@ -249,8 +255,8 @@ common_mode            94.0 s
 load chunk             77.6 s
 ```
 
-`load chunk` is reading and grouping the data, the other names are the cleaning steps, and `process`
-is your `process()` method. It is only printed when the analysis actually runs, not when the analysis cache is used.
+`load chunk` is reading and grouping the data, the other names are the cleaning steps, and `extract`
+is the extraction (and your `process()`, if you have one). It is only printed when the analysis actually runs, not when the analysis cache is used.
 
 ## Requirements
 

@@ -13,24 +13,13 @@ import warnings
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 
-from base_analysis import BaseAnalysis, isdir
+from base_analysis import BaseAnalysis, isdir, ADC_CLEAN
 from fits import box_gaussian
-
-ADC_CLEAN = "adc_clean"   # per run and channel: value = mean ADC, error = its standard error
 
 
 class BiasScan(BaseAnalysis):
-    CACHE_TAG = "bias_scan"
-    CACHE_VERSION = 1
-    QUANTITIES = (ADC_CLEAN,)
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
     PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
-
-    def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
-
-        # ADC mean per channel with voltage
-        mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
-        self.add(ADC_CLEAN, mean_per_channel, z=z, x=x, voltage=df["voltage"].iloc[0])
 
     def plot(self) -> None:
         # Define subdirs

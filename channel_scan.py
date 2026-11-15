@@ -8,21 +8,12 @@ Scans all selected channels and plots the .
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from base_analysis import BaseAnalysis
-
-ADC_CLEAN = "adc_clean"   # per run and channel: value = mean ADC, error = its standard error
+from base_analysis import BaseAnalysis, ADC_CLEAN
 
 
 class AdcVsChannel(BaseAnalysis):
-    CACHE_TAG = "adc_vs_channel"
-    QUANTITIES = (ADC_CLEAN,)
-
-    def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
-        per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
-        self.add(ADC_CLEAN, per_channel, z=z, x=x)
-
     def plot(self) -> None:
-        d = self.results.get(ADC_CLEAN)
+        d = self.get(ADC_CLEAN)
         # Average over the runs for each channel
         by_channel = d.groupby("channel")["value"].agg(["mean", "sem"])
 

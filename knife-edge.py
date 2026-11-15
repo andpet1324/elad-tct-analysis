@@ -13,35 +13,13 @@ import warnings
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 
-from base_analysis import BaseAnalysis, isdir
+from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, INTEGRALS
 from fits import edge
-
-ADC_CLEAN = "adc_clean"   # per run and channel: value = mean ADC, error = its standard error
-INTEGRALS = "integrals"   # integral over runs and channels: value = mean integral value, error = SEM
 
 
 class KnifeEdge(BaseAnalysis):
-    CACHE_TAG = "knife_edge"
-    CACHE_VERSION = 1
-    QUANTITIES = (ADC_CLEAN, INTEGRALS,)
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
     PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
-
-    # One file with x triggers
-    # Return the average over triggers
-    def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
-        # ADC MEAN PER CHANNEL
-        mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
-        self.add(ADC_CLEAN, mean_per_channel, z=z, x=x, voltage=df["voltage"].iloc[0])
-
-        window = df["channel"].between(self.cfg.chmin, self.cfg.chmax)
-        per_run = df[window].groupby("run")["adc_clean"].sum().to_numpy(dtype=float, na_value=np.nan)
-        n = per_run.size
-        integrals = pd.DataFrame({
-            "value": [per_run.mean()],
-            "error": [per_run.std(ddof=1) / np.sqrt(n) if n > 1 else np.nan], # sem
-        })
-        self.add(INTEGRALS, integrals, z=z, x=x, voltage=df["voltage"].iloc[0])
 
     # Contains the data per position basically
     def plot(self) -> None:

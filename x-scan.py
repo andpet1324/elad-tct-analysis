@@ -13,30 +13,13 @@ import warnings
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 
-from base_analysis import BaseAnalysis, isdir
+from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, CHANNEL_HITS
 from fits import box_gaussian
-
-ADC_CLEAN = "adc_clean"   # per run and channel: value = mean ADC, error = its standard error
-CHANNEL_HITS = "channel_hits" # averaged over run per channel: value = hit counts, error = None
 
 
 class XScan(BaseAnalysis):
-    CACHE_TAG = "adc_vs_channel"
-    CACHE_VERSION = 2   # 2: voltage key on adc_clean
-    QUANTITIES = (ADC_CLEAN,CHANNEL_HITS,)
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
     PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
-
-    # One file with x triggers
-    # Return the average over triggers
-    def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
-        # ADC MEAN PER CHANNEL
-        mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
-        self.add(ADC_CLEAN, mean_per_channel, z=z, x=x, voltage=df["voltage"].iloc[0])
-
-        # HITS (|ADC| over hit_threshold) PER CHANNEL
-        hits_per_channel = self.is_hit(df).groupby(df["channel"]).sum().rename("value").reset_index()
-        self.add(CHANNEL_HITS, hits_per_channel, z=z, x=x)
 
     # Contains the data per position basically
     def plot(self) -> None:
