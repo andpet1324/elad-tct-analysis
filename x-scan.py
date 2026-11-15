@@ -57,7 +57,7 @@ class XScan(BaseAnalysis):
             index="x", columns="channel", values="value", aggfunc="mean")
         active = hits.columns[hits.sum() > 0.05 * hits.sum().max()]   # channels with real hits
 
-        # All channels at once
+        # Heatmap channels vs x pos
         fig, ax = plt.subplots(1, 1)
         mesh = ax.pcolormesh(hits.index, hits.columns, hits.T.to_numpy(), shading="nearest")
         fig.colorbar(mesh, label="Hits")
@@ -132,7 +132,6 @@ class XScan(BaseAnalysis):
 
         """" --------------- ADC PLOTS ---------------"""
 
-        # ADC MEAN PER CHANNEL
         d = self.get(ADC_CLEAN)
         # Average over the runs for each channel
         d = d.astype({"x": float, "channel": float, "value": float, "error": float, "z": float, "voltage": float})
@@ -145,18 +144,47 @@ class XScan(BaseAnalysis):
         zs, volts = d["z"].unique(), d["voltage"].unique()
         title = f"z = {', '.join(f'{v:.2f}' for v in sorted(zs))} mm, V = {', '.join(f'{v:g}' for v in sorted(volts))} V"
 
+        # ADC vs pos and channel
         self.plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png")
 
-        # CLEANING
-        # Do the same thing but clean values with errors larger than 1
-        # and adc above 2
+        # Cleaning
+        adc_clean = adc_x.copy()
+        err_clean = err_x.copy()
 
-        clean_mask_err = err_x < 1 # noisy events
-        clean_mask_adc = adc_x < 2 # outliers
-        adc_x = adc_x[clean_mask_err][clean_mask_adc]
-        err_x = err_x[clean_mask_err][clean_mask_adc]
+        k = 5
+        for ch in adc_x.columns:
+            y = adc_x[ch]
+            sigma = 1.4826 * y.diff().abs().median() / np.sqrt(2)
 
-        self.plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel_clean.png")
+            left, right = y.shift(1), y.shift(-1)
+            pos = (y - pd.concat([left, right], axis=1).max(axis=1)) > k * sigma
+            neg = (y - pd.concat([left, right], axis=1).min(axis=1)) < -k * sigma
+
+            spike = pos | neg
+            adc_clean.loc[spike, ch] = np.nan
+            err_clean.loc[spike, ch] = np.nan
+
+        self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png")
+
+        # Normalizing
+        adc_clean = adc_clean.abs() / adc_clean.abs().max()
+        err_clean = err_clean / adc_clean.min()
+        self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_normalized.png")
+
+        # Heatmap
+        fig, ax = plt.subplots(1, 1)
+        mesh = ax.pcolormesh(adc_clean.index, adc_clean.columns, adc_clean.T.to_numpy(), cmap='viridis', shading="nearest")
+        fig.colorbar(mesh, label="ADC")
+        ax.set_xlabel("Position in x [mm]")
+        ax.set_ylabel("Channel")
+        ax.set_ylim(active.min() - 3, active.max() + 3)   # skip the empty channels
+        ax.xaxis.set_minor_locator(tck.AutoMinorLocator())
+        ax.yaxis.set_minor_locator(tck.AutoMinorLocator())
+        ax.tick_params(which="both", width=1, direction="out")   
+        ax.set_title(title)
+        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+        fig.savefig(adcdir / "adc_map.png", dpi=150)
+        plt.close(fig)
 
     def plot_adc(self, adc_x, err_x, active, visible, title, path) -> None:
         """Mean ADC vs x, one colour per channel, error as a faint band, channel numbers on top"""
@@ -167,7 +195,7 @@ class XScan(BaseAnalysis):
             colors[ch] = cmap(i)
             y, err = adc_x[ch], err_x[ch]
             ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
-            ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=0.2, lw=0)
+            # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=0.2, lw=0)
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("ADC")
