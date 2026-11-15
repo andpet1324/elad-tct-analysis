@@ -97,6 +97,7 @@ class BaseAnalysis(ABC):
         "allowance": 5,
         "pitch": 0.055,
         "ch_to_x": {},          # channel -> x position [mm], saved by the x-scan with update_config()
+        "eta_neighbours": 3,
         "chmin": 0,
         "chmax": 256,
         "time_threshold": 18,   # ADC threshold of the delay search
@@ -120,7 +121,8 @@ class BaseAnalysis(ABC):
                                    "use_default_delay", "zmin", "zmax")
     # Keys that only plot() or the data reading uses. A change recomputes nothing.
     # Every other key is assumed to be used by process(), so a change runs process() again.
-    PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size", "xmin", "xmax")
+    PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size", "xmin", "xmax",
+                                  "eta_neighbours")
 
     # Names of the quantities stored in self.results, e.g. QUANTITIES = (MEAN_ADC, FIT_SIGMA)
     QUANTITIES: tuple[str, ...] = ()

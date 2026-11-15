@@ -16,19 +16,23 @@ from scipy.optimize import OptimizeWarning
 from base_analysis import BaseAnalysis, isdir
 from fits import edge
 
+ADC_CLEAN = "adc_clean"   # per run and channel: value = mean ADC, error = its standard error
 INTEGRALS = "integrals"   # integral over runs and channels: value = mean integral value, error = SEM
 
 
 class KnifeEdge(BaseAnalysis):
     CACHE_TAG = "knife_edge"
     CACHE_VERSION = 1
-    QUANTITIES = (INTEGRALS,)
+    QUANTITIES = (ADC_CLEAN, INTEGRALS,)
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
     PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
 
     # One file with x triggers
     # Return the average over triggers
     def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
+        # ADC MEAN PER CHANNEL
+        mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
+        self.add(ADC_CLEAN, mean_per_channel, z=z, x=x, voltage=df["voltage"].iloc[0])
 
         window = df["channel"].between(self.cfg.chmin, self.cfg.chmax)
         per_run = df[window].groupby("run")["adc_clean"].sum().to_numpy(dtype=float, na_value=np.nan)
@@ -43,14 +47,11 @@ class KnifeEdge(BaseAnalysis):
     def plot(self) -> None:
         # Define subdirs
         fitdir = isdir(self.plotdir / "fits")
-        hitsdir = isdir(self.plotdir / "hits")
-        adcdir = isdir(self.plotdir / "adc")
 
         """" --------------- HITS PLOTS ---------------"""
         sigmas = {}
 
         d = self.get(INTEGRALS)
-        print(d)
         d = d.astype({"x": float, "z": float, "value": float, "error": float,"voltage": float})
         adc_x = d.pivot_table(index="x", columns="z", values="value", aggfunc="mean")
         err_x = d.pivot_table(index="x", columns="z", values="error", aggfunc="mean")
@@ -93,17 +94,53 @@ class KnifeEdge(BaseAnalysis):
                         popt[2] < 1.01e-4 or popt[2] > 0.99 * np.ptp(xs)
                         or popt[1] <= xs.min() or popt[1] >= xs.max())
                     if not np.all(np.isfinite(pcov)) or at_bound or chi2 > 10:
+                        sigmas[z] = (np.nan, np.nan)
                         raise ValueError(f"rejected fit, chi2/ndf = {chi2:.1f}, params {popt}")
                     sigmas[z] = (abs(popt[2]), abs(pcov[2][2]))
                     xf = np.linspace(xs.min(), xs.max(), 200)
                     ax.plot(xf, edge(xf, *popt))
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
+                sigmas[z] = (np.nan, np.nan)
                 print(f"z = {z}, fit of edge failed with {err}")
             ax.set_xlabel("Position in x [mm]")
             ax.set_ylabel("Integral over channels")
             ax.legend()
             fig.savefig(fitdir / f"knife_edge_scan_z_{z}.png", dpi=150)
             plt.close(fig)
+
+        zs = np.array(sorted(sigmas), dtype=float)
+        sig = np.array([sigmas[z][0] for z in sorted(sigmas)], dtype=float)
+        err = np.array([sigmas[z][1] for z in sorted(sigmas)], dtype=float)
+        fig, ax_zs = plt.subplots(1,1)
+        ax_zs.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o")
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", RuntimeWarning)
+                warnings.simplefilter("error", OptimizeWarning)
+                coefs, cov = np.polyfit(zs, sig, 2, cov=True)
+                residuals = sig - np.polyval(coefs, zs)
+                mad = np.median(np.abs(residuals - np.median(residuals)))
+                mask = np.abs(residuals) < 3 * 1.4826 * mad
+                coefs, _ = np.polyfit(zs[mask], sig[mask], 2, cov=True)
+                x = np.linspace(min(zs), max(zs), 100)
+                yfit = np.polyval(coefs, x)
+                ax_zs.plot(x, 1000 * yfit, label = rf"2nd order poly fit with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
+        except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
+            print(f"Fit of sigmas failed with {err}")
+        ax_zs.set_xlabel("Position in z [mm]")
+        ax_zs.set_ylabel(rf"Edge fit $\sigma$ [µm]")
+        ax_zs.set_title("Knife-edge scan")
+        fig.savefig(self.plotdir / "sigma_vs_z.png", dpi=150)
+        plt.close()
+
+        # Compare to ADC
+        d = self.get(ADC_CLEAN)
+        # Average over the runs for each channel
+        d = d.astype({"x": float, "channel": float, "value": float, "error": float, "z": float, "voltage": float})
+
+        adc_x = d.pivot_table(index="x", columns="channel", values="value", aggfunc="mean")
+        err_x = d.pivot_table(index="x", columns="channel", values="error", aggfunc="mean")
+        err_x = err_x.reindex(index=adc_x.index, columns=adc_x.columns)
 
 
         

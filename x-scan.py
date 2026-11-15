@@ -162,6 +162,11 @@ class XScan(BaseAnalysis):
         adc_clean.loc[bad] = np.nan
         err_clean.loc[bad] = np.nan
 
+        # Drop Nans
+        ok = adc_clean.notna().all(axis=1)
+        adc_clean = adc_clean.loc[ok]
+        err_clean = err_clean.loc[ok]
+
         self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png")
 
         # Charge fractions need the absolute values, not the per-channel normalized ones
@@ -191,7 +196,10 @@ class XScan(BaseAnalysis):
         frac = {}
         err_frac = {}
         for ch in active:
-            cols = [ch - 2, ch - 1, ch, ch + 1, ch + 2]
+            cols = [c for c in np.linspace(
+                ch-self.cfg.eta_neighbours, 
+                ch+self.cfg.eta_neighbours, 
+                num=(2 * self.cfg.eta_neighbours + 1))]
             q = charge.reindex(columns=cols)
             e = charge_err.reindex(columns=cols)
 
