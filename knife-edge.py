@@ -96,7 +96,7 @@ class KnifeEdge(BaseAnalysis):
                     if not np.all(np.isfinite(pcov)) or at_bound or chi2 > 10:
                         sigmas[z] = (np.nan, np.nan)
                         raise ValueError(f"rejected fit, chi2/ndf = {chi2:.1f}, params {popt}")
-                    sigmas[z] = (abs(popt[2]), abs(pcov[2][2]))
+                    sigmas[z] = (abs(popt[2]), np.sqrt(pcov[2][2]))
                     xf = np.linspace(xs.min(), xs.max(), 200)
                     ax.plot(xf, edge(xf, *popt))
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
@@ -111,18 +111,20 @@ class KnifeEdge(BaseAnalysis):
         zs = np.array(sorted(sigmas), dtype=float)
         sig = np.array([sigmas[z][0] for z in sorted(sigmas)], dtype=float)
         err = np.array([sigmas[z][1] for z in sorted(sigmas)], dtype=float)
+        good = np.isfinite(sig) & np.isfinite(err) & (err > 0)
+        zs_g, sig_g, err_g = zs[good], sig[good], err[good]
         fig, ax_zs = plt.subplots(1,1)
         ax_zs.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o")
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", RuntimeWarning)
                 warnings.simplefilter("error", OptimizeWarning)
-                coefs, cov = np.polyfit(zs, sig, 2, cov=True)
-                residuals = sig - np.polyval(coefs, zs)
+                coefs, cov = np.polyfit(zs_g, sig_g, 2, w=1/err_g cov="unscaled")
+                residuals = sig - np.polyval(coefs, zs_g)
                 mad = np.median(np.abs(residuals - np.median(residuals)))
                 mask = np.abs(residuals) < 3 * 1.4826 * mad
-                coefs, _ = np.polyfit(zs[mask], sig[mask], 2, cov=True)
-                x = np.linspace(min(zs), max(zs), 100)
+                coefs, _ = np.polyfit(zs_g[mask], sig_g[mask], 2, cov=True)
+                x = np.linspace(min(zs_g), max(zs_g), 100)
                 yfit = np.polyval(coefs, x)
                 ax_zs.plot(x, 1000 * yfit, label = rf"2nd order poly fit with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
         except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
