@@ -53,8 +53,16 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
         meta.pop("channels", None)
         keep = ("run_id", "x", "z", "voltage")
         meta = {k: meta[k] for k in keep}
-        df = pd.read_csv(path, header=1).assign(**meta)
-        # df = pd.read_csv(path, header=1)
+        df = pd.read_csv(path, header=1)
+        # One bad value makes pandas read a whole column as float or text, and the files then
+        # cannot be merged. Make the types the same in every file and drop broken rows.
+        df = df.apply(pd.to_numeric, errors="coerce")
+        broken = df[["run", "channel"]].isna().any(axis=1)
+        if broken.any():
+            tqdm.write(f"{path.name}: dropped {int(broken.sum())} rows with a missing run or channel")
+            df = df[~broken]
+        df = df.astype({"run": "int64", "channel": "int64", "time": "float64", "adc": "float64"})
+        df = df.assign(**meta)
         tables.append(pa.Table.from_pandas(df, preserve_index=False))
         del df
     table = pa.concat_tables(tables, promote_options="default")
