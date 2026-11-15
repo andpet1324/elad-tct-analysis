@@ -18,9 +18,19 @@ progress bars and timing. The older scripts (`motor_scan_ana.py`, `bias_motor_sc
 ## Running
 
 ```
-python3 adc_vs_channel_ana.py data/*.csv -ped pedestals.csv -plots plots/run1 \
+python3 tct.py x-scan data/*.csv -ped pedestals.csv -plots plots/run1 \
     -conf config.toml -cache caches/run1.parquet
 ```
+
+The first argument is the analysis: `x-scan`, `knife-edge` or `bias-scan` (the list is `ANALYSES` in
+`tct.py`). All of them share the cleaned data, so after one has run, another one on the same data and
+config only runs `process()` and `plot()`:
+
+```
+python3 tct.py knife-edge -ped pedestals.csv -plots plots/run1 -conf config.toml -cache caches/run1.parquet
+```
+
+Each analysis file can still be run on its own, with the same arguments and without the name.
 
 | Argument | Meaning |
 |---|---|
@@ -33,6 +43,7 @@ python3 adc_vs_channel_ana.py data/*.csv -ped pedestals.csv -plots plots/run1 \
 | `--rebuild-data` | Ignore and rewrite the data caches. |
 | `--rebuild-ana` | Ignore the analysis and cleaned data caches and clean everything again. |
 | `--fast-common-mode` | Median instead of a fit for the common mode. A plain flag, it takes no value. |
+| `--plot-only` | Only plot, from the saved results of this analysis. Stops with a message if there are none. |
 | `--profile` | After the analysis, print the seconds spent in each part, slowest first. |
 
 A run goes through three steps, shown in the progress bar: **Loading data**, **Analyzing**, **Plotting**.
@@ -185,8 +196,10 @@ A chunk cache is used only if it is newer than every CSV in it. If one is older,
 the output says which file caused it, with both times. A scan that is still running changes the last chunk
 every time a file arrives, so that chunk is rebuilt each run until the scan is done.
 
-**Cleaned data cache**: `<stem>_<CACHE_TAG><cache_key>_cleaned.pkl`. Every run after the cleaning pipeline, kept
-so that `process()` can be run again without cleaning. Cleaning is the slow part.
+**Cleaned data cache**: `<stem>_cleaned.pkl`. Every run after the cleaning pipeline, kept
+so that `process()` can be run again without cleaning. Cleaning is the slow part. The name has no analysis
+in it, so all analyses use the same file. Because of that an analysis must not drop runs in `select_run()`
+on its own (the `zmin`/`zmax` cut is fine, it is a cleaning key). Do that kind of selection in `process()`.
 
 **Analysis cache**: `<stem>_<CACHE_TAG><cache_key>_v<CACHE_VERSION>.pkl`. Holds `self.results`. When it is
 valid, the data is not touched at all and the run goes straight to the plots.

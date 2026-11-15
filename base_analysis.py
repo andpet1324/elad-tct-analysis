@@ -269,6 +269,8 @@ class BaseAnalysis(ABC):
                             help="Cache file (.parquet) for the parsed data")
         parser.add_argument("--rebuild-data", action="store_true", help="Rewrite the data caches")
         parser.add_argument("--rebuild-ana", action="store_true", help="Ignore the analysis and cleaned data caches, clean everything again")
+        parser.add_argument("--plot-only", action="store_true",
+                            help="Only plot, from the saved results of this analysis. Fails if there are none")
         parser.add_argument("--profile", action="store_true", help="Print where the time went")
         parser.add_argument("--fast-common-mode", action="store_true",
                             help="Fast and weak method of subtracting the common mode")
@@ -387,14 +389,20 @@ class BaseAnalysis(ABC):
         later = {k: v for k, v in vars(self.cfg).items() if k not in self.CLEAN_KEYS + self.PLOT_KEYS}
         return clean, later
 
-    def _cache_path(self, what: str) -> pathlib.Path | None:
+    def _cache_path(self, what: str, shared: bool = False) -> pathlib.Path | None:
+        """shared=True: the name has no analysis in it, so every analysis uses the same file"""
         if self.args.cache is None:
             return None
         stem = self.args.cache.stem if self.single_chunk else cache_stem(self.args.cache)
-        return self.args.cache.with_name(f"{stem}_{self.CACHE_TAG}{self.cache_key()}_{what}.pkl")
+        tag = "" if shared else f"{self.CACHE_TAG}{self.cache_key()}_"
+        return self.args.cache.with_name(f"{stem}_{tag}{what}.pkl")
 
     def analysis_cache_path(self) -> pathlib.Path | None:
         return self._cache_path(f"v{self.CACHE_VERSION}")
+
+    def cleaned_cache_path(self) -> pathlib.Path | None:
+        # Cleaning does not depend on the analysis, so all of them share it
+        return self._cache_path("cleaned", shared=True)
 
     def _read_cache(self, path: pathlib.Path | None, params: dict) -> dict | None:
         """The dict pickled in `path`, or None, with the reason printed, if it cannot be used"""
@@ -447,16 +455,16 @@ class BaseAnalysis(ABC):
 
     def load_cleaned(self) -> bool:
         clean, _ = self._params()
-        cache = self._read_cache(self._cache_path("cleaned"), clean)
+        cache = self._read_cache(self.cleaned_cache_path(), clean)
         if cache is None:
             return False
         self.cleaned = cache
         self.ctx.delay, self.ctx.sigma_t = cache["delay"], cache["sigma_t"]
-        print(f"Using the cleaned data in {self._cache_path('cleaned')}")
+        print(f"Using the cleaned data in {self.cleaned_cache_path()}")
         return True
 
     def save_cleaned(self) -> None:
-        path = self._cache_path("cleaned")
+        path = self.cleaned_cache_path()
         if path is None:
             return
         try:
@@ -476,6 +484,8 @@ class BaseAnalysis(ABC):
 
             # Cheapest first: finished results, then cleaned data, then the data itself
             have_results = self.load_results()
+            if self.args.plot_only and not have_results:
+                raise SystemExit("--plot-only needs saved results for this analysis, run once without it")
             have_cleaned = not have_results and self.load_cleaned()
             if not have_results and not have_cleaned and self.args.cache is not None:
                 self.cache_data()

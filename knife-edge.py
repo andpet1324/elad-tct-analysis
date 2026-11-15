@@ -48,7 +48,7 @@ class KnifeEdge(BaseAnalysis):
         # Define subdirs
         fitdir = isdir(self.plotdir / "fits")
 
-        """" --------------- HITS PLOTS ---------------"""
+        """" --------------- KNIFE-EDGE PLOTS ---------------"""
         sigmas = {}
 
         d = self.get(INTEGRALS)
