@@ -56,9 +56,11 @@ class KnifeEdge(BaseAnalysis):
         err_x = d.pivot_table(index="x", columns="z", values="error", aggfunc="mean")
         for z in adc_x.columns:
             fig, ax = plt.subplots(1, 1)
-            xs = adc_x.index
-            ys = adc_x[z]
-            es = err_x[z]
+            # Drop positions without a value (NaN), as numpy arrays
+            ok = adc_x[z].notna().to_numpy()
+            xs = adc_x.index.to_numpy()[ok]
+            ys = adc_x[z].to_numpy()[ok]
+            es = err_x[z].reindex(adc_x.index).to_numpy()[ok]
             ax.errorbar(xs, ys, es, fmt="-o", ms=2, label=f"z = {z:.2f} mm")
             try:
                 if xs.size < 6:
