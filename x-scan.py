@@ -30,8 +30,6 @@ class XScan(BaseAnalysis):
     # One file with x triggers
     # Return the average over triggers
     def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
-        # if x > 9.2:
-        #     return
         # ADC MEAN PER CHANNEL
         mean_per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
         self.add(ADC_CLEAN, mean_per_channel, z=z, x=x, voltage=df["voltage"].iloc[0])
@@ -95,6 +93,7 @@ class XScan(BaseAnalysis):
                 ax.plot(x, y)
                 ax.plot(xr, box_gaussian(xr, *popt))
                 fig.savefig(fitdir / f"channel_{ch}_box_gaussian_fit.png", dpi=150)
+                plt.close(fig)
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit failed with {err}")
                 continue
@@ -151,30 +150,29 @@ class XScan(BaseAnalysis):
         adc_clean = adc_x.copy()
         err_clean = err_x.copy()
 
+        # A bad file shifts many channels at the same x, a real dip only a few.
+        # So judge each x position by the median over channels of the deviation
+        # from the rolling median along x, and drop the whole position.
         k = 5
-        for ch in adc_x.columns:
-            y = adc_x[ch]
-            sigma = 1.4826 * y.diff().abs().median() / np.sqrt(2)
-
-            left, right = y.shift(1), y.shift(-1)
-            pos = (y - pd.concat([left, right], axis=1).max(axis=1)) > k * sigma
-            neg = (y - pd.concat([left, right], axis=1).min(axis=1)) < -k * sigma
-
-            spike = pos | neg
-            adc_clean.loc[spike, ch] = np.nan
-            err_clean.loc[spike, ch] = np.nan
+        res = adc_x[active] - adc_x[active].rolling(5, center=True, min_periods=3).median()
+        row = res.abs().median(axis=1)
+        mad = max(1.4826 * (row - row.median()).abs().median(), 1e-9)
+        bad = row > row.median() + k * mad
+        print(f"Bad x positions removed: {list(adc_x.index[bad])}")
+        adc_clean.loc[bad] = np.nan
+        err_clean.loc[bad] = np.nan
 
         self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png")
 
         # Normalizing
-        adc_clean = adc_clean.abs() / adc_clean.abs().max()
         err_clean = err_clean / adc_clean.min()
+        adc_clean = adc_clean.abs() / adc_clean.abs().max()
         self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_normalized.png")
 
         # Heatmap
         fig, ax = plt.subplots(1, 1)
         mesh = ax.pcolormesh(adc_clean.index, adc_clean.columns, adc_clean.T.to_numpy(), cmap='viridis', shading="nearest")
-        fig.colorbar(mesh, label="ADC")
+        fig.colorbar(mesh, label="Normalized ADC")
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("Channel")
         ax.set_ylim(active.min() - 3, active.max() + 3)   # skip the empty channels
