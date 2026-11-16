@@ -33,6 +33,7 @@ class KnifeEdge(BaseAnalysis):
 
         """" --------------- KNIFE-EDGE PLOTS ---------------"""
         sigmas = {}
+        zmins = {}   # method -> (z_min, error), for the comparison plot
 
         d = self.get(INTEGRALS)
         d = d.astype({"x": float, "z": float, "value": float, "error": float,"voltage": float})
@@ -107,7 +108,8 @@ class KnifeEdge(BaseAnalysis):
                 residuals = sig_g - np.polyval(coefs, zs_g)
                 mad = np.median(np.abs(residuals - np.median(residuals)))
                 mask = np.abs(residuals) < 3 * 1.4826 * mad
-                coefs, _ = np.polyfit(zs_g[mask], sig_g[mask], 2, w=1/err_g[mask], cov="unscaled")
+                coefs, cov_k = np.polyfit(zs_g[mask], sig_g[mask], 2, w=1/err_g[mask], cov="unscaled")
+                zmins["Knife-edge"] = self.vertex(coefs, cov_k)
                 x = np.linspace(min(zs_g), max(zs_g), 100)
                 yfit = np.polyval(coefs, x)
                 ax_zs.plot(x, 1000 * yfit, label = rf"2nd order poly: $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
@@ -203,6 +205,7 @@ class KnifeEdge(BaseAnalysis):
                     coefs, cov = np.polyfit(ch_zs[mask], sig[mask], 2, w=1/sig_err[mask], cov="unscaled")
                     xz = np.linspace(min(ch_zs), max(ch_zs), 100)
                     zmin = -coefs[1] / (2 * coefs[0])
+                    zmins[f"Ch {ch}"] = self.vertex(coefs, cov)
                     sigmin = 1000 * np.polyval(coefs, xz).min()
                     ax_zs.plot(xz, 1000 * np.polyval(coefs, xz),
                             color=color, label=rf"2nd order poly: $\sigma_{{\mathrm{{min}}}} = {sigmin:.2f}$ µm")
@@ -226,6 +229,29 @@ class KnifeEdge(BaseAnalysis):
             ax_comp.set_ylim(-10, 80)
             fig_comp.savefig(self.plotdir / f"Compiled_focus_scan.png", dpi=150)
             plt.close(fig_comp)
+
+        # Comparison of the focus position z_min between the methods
+        fig_z, ax_z = plt.subplots(1, 1)
+        labels = list(zmins)
+        vals = [zmins[k][0] for k in labels]
+        errs = [zmins[k][1] for k in labels]
+        colors = {"Knife-edge": "k", **{f"Ch {ch}": ch_colors[ch] for ch in active}}
+        for i, (k, v, e) in enumerate(zip(labels, vals, errs)):
+            ax_z.errorbar(i, v, yerr=e, fmt="o", capsize=4, color=colors[k])
+        ax_z.set_xticks(range(len(labels)), labels)
+        ax_z.set_xlim(-0.5, len(labels) - 0.5)
+        ax_z.set_ylabel(r"$z_{\mathrm{min}}$ [mm]")
+        ax_z.set_title("Focus position")
+        ax_z.grid(True, axis="y")
+        fig_z.savefig(self.plotdir / "zmin_comparison.png", dpi=150)
+        plt.close(fig_z)
+
+    @staticmethod
+    def vertex(coefs, cov):
+        """Vertex -b/2a of a parabola and its error from the fit covariance."""
+        a, b = coefs[0], coefs[1]
+        grad = np.array([b / (2 * a**2), -1 / (2 * a)])
+        return -b / (2 * a), float(np.sqrt(grad @ cov[:2, :2] @ grad))
 
 
 
