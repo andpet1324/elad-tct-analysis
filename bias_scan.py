@@ -97,7 +97,7 @@ class BiasScan(BaseAnalysis):
                     continue
                 sig = np.asarray(sigmas[ch]["val"])
                 sig_err = np.asarray(sigmas[ch]["err"])
-                ax_zs.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, xerr=self.cfg.zerr, fmt="o", color=color, label=f"Ch {ch}")
+                ax_zs.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, xerr=self.cfg.zerr, fmt="o", color=color)
                 try:
                     with warnings.catch_warnings():
                         warnings.simplefilter("error", RuntimeWarning)

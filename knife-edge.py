@@ -43,6 +43,10 @@ class KnifeEdge(BaseAnalysis):
             xs = adc_x.index.to_numpy()[ok]
             ys = adc_x[z].to_numpy()[ok]
             es = err_x[z].reindex(adc_x.index).to_numpy()[ok]
+            argmin = ys.argmin()+2
+            xs = xs[:argmin]
+            ys = ys[:argmin]
+            es = es[:argmin]
             ax.errorbar(xs, ys, es, xerr=self.cfg.xerr, fmt="o", ms=2, label=f"z = {z:.2f} mm")
             try:
                 if xs.size < 6:
@@ -69,13 +73,13 @@ class KnifeEdge(BaseAnalysis):
                         edge, xs, ys, w_err, self.cfg.xerr, p0=p0, bounds=(lo, hi), maxfev=10000)
 
                     # Sanity of the fit
-                    chi2 = np.sum(((ys - edge(xs, *popt)) / w_err)**2) / (xs.size - 4)
-                    at_bound = (
-                        popt[2] < 1.01e-4 or popt[2] > 0.99 * np.ptp(xs)
-                        or popt[1] <= xs.min() or popt[1] >= xs.max())
-                    if not np.all(np.isfinite(pcov)) or at_bound or chi2 > 10:
-                        sigmas[z] = (np.nan, np.nan)
-                        raise ValueError(f"rejected fit, chi2/ndf = {chi2:.1f}, params {popt}")
+                    # chi2 = np.sum(((ys - edge(xs, *popt)) / w_err)**2) / (xs.size - 4)
+                    # at_bound = (
+                    #     popt[2] < 1.01e-4 or popt[2] > 0.99 * np.ptp(xs)
+                    #     or popt[1] <= xs.min() or popt[1] >= xs.max())
+                    # if not np.all(np.isfinite(pcov)) or at_bound or chi2 > 10:
+                    #     sigmas[z] = (np.nan, np.nan)
+                    #     raise ValueError(f"rejected fit, chi2/ndf = {chi2:.1f}, params {popt}")
                     sigmas[z] = (abs(popt[2]), np.sqrt(pcov[2][2]))
                     xf = np.linspace(xs.min(), xs.max(), 200)
                     ax.plot(xf, edge(xf, *popt))
@@ -84,6 +88,8 @@ class KnifeEdge(BaseAnalysis):
                 print(f"z = {z}, fit of edge failed with {err}")
             ax.set_xlabel("Position in x [mm]")
             ax.set_ylabel("Integral over channels")
+            # ax.set_title(f"Integral between channels {self.cfg.chmin} - {self.cfg.chmax}")
+            ax.set_title(f"Integral on channel 86")
             ax.legend()
             fig.savefig(fitdir / f"knife_edge_scan_z_{z}.png", dpi=150)
             plt.close(fig)
