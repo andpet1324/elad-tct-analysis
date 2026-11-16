@@ -36,18 +36,17 @@ class BiasScan(BaseAnalysis):
         colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
         ch_colors = {ch: next(colors) for ch in channels}
         focuses = {}   # channel -> {voltage: (zmin, zerr, sigmamin, sigmaerr)}
+        cmap = plt.get_cmap("turbo", len(d["z"].unique()))
 
         for voltage, v_df in d.groupby("voltage"):
             voltdir = isdir(biasdir / f"{voltage:g}_volts")
-            z_colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
             zs = {ch: [] for ch in channels}
             sigmas = {ch: {"val": [], "err": []} for ch in channels}
 
             for ch_id, ch_df in v_df.groupby("channel"):
                 ch_id = int(ch_id)
                 fig_adc, ax_adc = plt.subplots(1, 1)
-                for z, z_df in ch_df.groupby("z"):
-                    z_color = next(z_colors)
+                for ci, (z, z_df) in enumerate(sorted(ch_df.groupby("z"))):
                     # Mean ADC at each x, sorted by increasing x, without missing values
                     rows = z_df.sort_values("x").dropna(subset=["value", "error"])
                     x = rows["x"].to_numpy()
@@ -56,7 +55,7 @@ class BiasScan(BaseAnalysis):
 
                     if x.size < 5: # the fit has 5 parameters
                         continue
-                    ax_adc.errorbar(x, adc, yerr=err, fmt="o", ms=3, color=z_color, label=f"z = {z:.2f} mm")
+                    ax_adc.errorbar(x, adc, yerr=err, fmt="o", ms=3, color=cmap(ci), label=f"z = {z:.2f} mm")
                     abs_adc = np.abs(adc)
                     # Fit signal and get the stdev
                     argmax = np.argmax(abs_adc)   # SIGNAL IS ABS SO MAX
@@ -75,7 +74,7 @@ class BiasScan(BaseAnalysis):
                                 box_gaussian, x, abs_adc, sigma=np.abs(err),
                                 p0=p0, bounds=(lo, hi), maxfev=10000, absolute_sigma=True)
                             xf = np.linspace(x.min(), x.max(), 500)
-                            ax_adc.plot(xf, np.sign(adc.sum()) * box_gaussian(xf, *popt), "--", color=z_color)
+                            ax_adc.plot(xf, np.sign(adc.sum()) * box_gaussian(xf, *popt), "--", color=cmap(ci))
                             zs[ch_id].append(z)
                             sigmas[ch_id]["val"].append(abs(popt[3]))
                             sigmas[ch_id]["err"].append(np.sqrt(pcov[3,3]))
@@ -83,6 +82,7 @@ class BiasScan(BaseAnalysis):
                         print(f"Fit failed with {err}")
                         continue
 
+                    ax_adc.legend(fontsize="x-small", ncols=3, framealpha=0.6)
                     ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())
                     ax_adc.set_title(f"Ch {ch_id}, {voltage:g} V")
                     ax_adc.set_xlabel("Position in x [mm]")
@@ -104,11 +104,11 @@ class BiasScan(BaseAnalysis):
                     with warnings.catch_warnings():
                         warnings.simplefilter("error", RuntimeWarning)
                         warnings.simplefilter("error", OptimizeWarning)
-                        coefs, cov = np.polyfit(ch_zs, sig, 2, cov=True)
+                        coefs, cov = np.polyfit(ch_zs, sig, 2, w=1/sig_err, cov="unscaled")
                         residuals = sig - np.polyval(coefs, ch_zs)
                         mad = np.median(np.abs(residuals - np.median(residuals)))
                         mask = np.abs(residuals) < 3 * 1.4826 * mad
-                        coefs, cov = np.polyfit(ch_zs[mask], sig[mask], 2, cov=True)
+                        coefs, cov = np.polyfit(ch_zs[mask], sig[mask], 2, w=1/sig_err[mask], cov="unscaled")
                         xz = np.linspace(min(ch_zs), max(ch_zs), 100)
                         zmin = -coefs[1] / (2 * coefs[0])
                         sigmamin = np.polyval(coefs, zmin)
@@ -124,7 +124,7 @@ class BiasScan(BaseAnalysis):
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                     print(f"Fit of sigmas failed with {err}")
 
-                ax_zs.set_title(f"{voltage:g} V")
+                ax_zs.set_title(f"Ch {ch}, {voltage:g} V")
                 ax_zs.set_xlabel("Position in z [mm]")
                 ax_zs.set_ylabel("σ in x [µm]")
                 # ax_zs.set_yim(-10, 80)
@@ -152,12 +152,13 @@ class BiasScan(BaseAnalysis):
                 volts, 1000 * sm, yerr=1000 * se, fmt="o-", ms=4, capsize=3,
                 color=ch_colors[ch], label=f"Ch {ch}")
         if focuses:
-            ax_f[0].legend()
+            ax_f[0].legend(fontsize="small", ncols=3, framealpha=0.6)
         ax_f[1].set_ylabel(r"$z_{\mathrm{min}}$ [mm]")
         ax_f[0].set_ylabel(r"$\sigma_{\mathrm{min}}$ [µm]")
         ax_f[1].set_xlabel("Bias voltage [V]")
-        ax_f[1].grid(True)
-        ax_f[0].grid(True)
+        for ax in ax_f:
+            ax.grid(True)
+            ax.set_ylim(-5, 100)
         fig_f.align_ylabels()
         fig_f.savefig(biasdir / "focus_vs_voltage.png", dpi=150)
         plt.close(fig_f)

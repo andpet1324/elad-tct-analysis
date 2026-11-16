@@ -15,6 +15,7 @@ from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, CHANNEL_HITS
 from fits import box_gaussian
+from plot_helpers import clean_adc, plot_adc
 
 
 class XScan(BaseAnalysis):
@@ -127,30 +128,13 @@ class XScan(BaseAnalysis):
         title = f"z = {', '.join(f'{v:.2f}' for v in sorted(zs))} mm, V = {', '.join(f'{v:g}' for v in sorted(volts))} V"
 
         # ADC vs pos and channel
-        self.plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png")
+        plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png",
+                 self.cfg.xmin, self.cfg.xmax)
 
-        # Cleaning
-        adc_clean = adc_x.copy()
-        err_clean = err_x.copy()
+        adc_clean, err_clean = clean_adc(adc_x, err_x, active)
 
-        # A bad file shifts many channels at the same x, a real dip only a few.
-        # So judge each x position by the median over channels of the deviation
-        # from the rolling median along x, and drop the whole position.
-        k = 5
-        res = adc_x[active] - adc_x[active].rolling(5, center=True, min_periods=3).median()
-        row = res.abs().median(axis=1)
-        mad = max(1.4826 * (row - row.median()).abs().median(), 1e-9)
-        bad = row > row.median() + k * mad
-        print(f"Bad x positions removed: {list(adc_x.index[bad])}")
-        adc_clean.loc[bad] = np.nan
-        err_clean.loc[bad] = np.nan
-
-        # Drop Nans
-        ok = adc_clean.notna().all(axis=1)
-        adc_clean = adc_clean.loc[ok]
-        err_clean = err_clean.loc[ok]
-
-        self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png")
+        plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png",
+                 self.cfg.xmin, self.cfg.xmax)
 
         # Charge fractions need the absolute values, not the per-channel normalized ones
         charge, charge_err = adc_clean.abs(), err_clean.copy()
@@ -158,7 +142,8 @@ class XScan(BaseAnalysis):
         # Normalizing
         err_clean = err_clean.abs() / adc_clean.abs().max()
         adc_clean = adc_clean.abs() / adc_clean.abs().max()
-        self.plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_normalized.png")
+        plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_normalized.png",
+                 self.cfg.xmin, self.cfg.xmax)
 
         # Heatmap
         fig, ax = plt.subplots(1, 1)
@@ -201,34 +186,11 @@ class XScan(BaseAnalysis):
             err_frac[ch] = np.sqrt(var)
         frac = pd.DataFrame(frac)
         err_frac = pd.DataFrame(err_frac)
-        self.plot_adc(100 * frac, 100 * err_frac, active, visible, title, adcdir / "eta-function.png",
-                      ylabel="Charge fraction [%]")
+        plot_adc(100 * frac, 100 * err_frac, active, visible, title, adcdir / "eta-function.png",
+                      self.cfg.xmin, self.cfg.xmax, ylabel="Charge fraction [%]")
 
 
-    def plot_adc(self, adc_x, err_x, active, visible, title, path, ylabel="ADC") -> None:
-        """Mean ADC vs x, one colour per channel, error as a faint band, channel numbers on top"""
-        cmap = plt.get_cmap("turbo", len(active))   # discrete: one colour per channel
-        fig, ax = plt.subplots(1, 1)
-        colors = {}
-        for i, ch in enumerate(active):
-            colors[ch] = cmap(i)
-            y, err = adc_x[ch], err_x[ch]
-            ax.errorbar(adc_x.index, y, yerr=err, color=colors[ch])
-            # ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
-            # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=1, lw=0)
-        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
-        ax.set_xlabel("Position in x [mm]")
-        ax.set_ylabel(ylabel)
-        ax.set_title(title, pad=40)
 
-        ax_top = ax.twiny()
-        ax_top.set_xlim(ax.get_xlim())
-        ax_top.set_xticks([x for _, x in visible])
-        ax_top.set_xticklabels([str(int(ch)) for ch, _ in visible])
-        ax_top.tick_params(axis="x", labelrotation=90, labelsize="x-small")
-        ax_top.set_xlabel("Channel")
-        fig.savefig(path, dpi=150)
-        plt.close(fig)
 
 
 if __name__ == "__main__":
