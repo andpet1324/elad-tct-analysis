@@ -10,6 +10,7 @@ import itertools
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 import numpy as np
+import pandas as pd
 import warnings
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
@@ -19,18 +20,17 @@ from fits import box_gaussian
 
 
 class BiasScan(BaseAnalysis):
-    # channels: the ones that are fitted, ch: the one whose mean ADC is plotted (ch_mean_adc.png)
-    DEFAULTS = {**BaseAnalysis.DEFAULTS, "channels": [91, 92, 93, 94, 95, 96, 97, 98], "ch": 96}
+    # channels: the ones that are fitted
+    DEFAULTS = {**BaseAnalysis.DEFAULTS, "channels": [96, 97, 98, 99, 100, 101]}
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
     PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x", "channels", "ch")
 
     def plot(self) -> None:
         biasdir = isdir(self.plotdir / "bias")
-        CH = self.cfg.ch
-        channels = sorted(set(self.cfg.channels) | {CH})
+        channels = sorted(set(self.cfg.channels))
 
-        d = self.get(ADC_CLEAN).astype(
-            {"x": float, "z": float, "voltage": float, "channel": float, "value": float})
+        d = self.get(ADC_CLEAN)
+        d = d.astype({"x": float, "channel": float, "value": float, "error": float, "z": float, "voltage": float})
         d = d[d["channel"].isin(channels)]
 
         colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
@@ -39,31 +39,30 @@ class BiasScan(BaseAnalysis):
 
         for voltage, v_df in d.groupby("voltage"):
             voltdir = isdir(biasdir / f"{voltage:g}_volts")
-            fig_zs, ax_zs = plt.subplots(1, 1)
-            fig_adc, ax_adc = plt.subplots(1, 1)
             z_colors = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
             zs = {ch: [] for ch in channels}
-            sigmas = {ch: [] for ch in channels}
+            sigmas = {ch: {"val": [], "err": []} for ch in channels}
 
-            for z, z_df in v_df.groupby("z"):
-                z_color = next(z_colors)
-                for ch_id, ch_df in z_df.groupby("channel"):
-                    ch_id = int(ch_id)
+            for ch_id, ch_df in v_df.groupby("channel"):
+                ch_id = int(ch_id)
+                fig_adc, ax_adc = plt.subplots(1, 1)
+                for z, z_df in ch_df.groupby("z"):
+                    z_color = next(z_colors)
                     # Mean ADC at each x, sorted by increasing x, without missing values
-                    s = ch_df.groupby("x")["value"].mean().dropna()
-                    x = s.index.to_numpy()
-                    raw_adc = s.to_numpy()
-                    if x.size < 5:   # the fit has 5 parameters
-                        continue
-                    mean_adc = np.abs(raw_adc)
-                    if ch_id == CH:
-                        ax_adc.plot(x, raw_adc, "o", ms=3, color=z_color, label=f"z = {z:.2f} mm")
+                    rows = z_df.sort_values("x").dropna(subset=["value", "error"])
+                    x = rows["x"].to_numpy()
+                    adc = rows["value"].to_numpy()
+                    err = rows["error"].to_numpy()
 
+                    if x.size < 5: # the fit has 5 parameters
+                        continue
+                    ax_adc.errorbar(x, adc, yerr=err, fmt="o", ms=3, color=z_color, label=f"z = {z:.2f} mm")
+                    abs_adc = np.abs(adc)
                     # Fit signal and get the stdev
-                    argmax = np.argmax(mean_adc)   # SIGNAL IS ABS SO MAX
-                    peak = mean_adc[argmax]
+                    argmax = np.argmax(abs_adc)   # SIGNAL IS ABS SO MAX
+                    peak = abs_adc[argmax]
                     base = 0   # Assume 0 baseline
-                    above = x[mean_adc > base + peak / 2]
+                    above = x[abs_adc > base + peak / 2]
                     w = above.max() - above.min() if above.size > 1 else self.cfg.pitch / 2
                     p0 = [peak - base, x[argmax], w, max(w / 10, np.diff(x).min()), base]
                     lo = [0, x.min(), 0, 1e-4, -np.inf]
@@ -73,25 +72,34 @@ class BiasScan(BaseAnalysis):
                             warnings.simplefilter("error", RuntimeWarning)
                             warnings.simplefilter("error", OptimizeWarning)
                             popt, pcov = curve_fit(
-                                box_gaussian, x, mean_adc,
-                                p0=p0, bounds=(lo, hi), maxfev=10000)
-                        if ch_id == CH:
+                                box_gaussian, x, abs_adc, sigma=np.abs(err),
+                                p0=p0, bounds=(lo, hi), maxfev=10000, absolute_sigma=True)
                             xf = np.linspace(x.min(), x.max(), 500)
-                            ax_adc.plot(xf, np.sign(raw_adc.sum()) * box_gaussian(xf, *popt), "--", color=z_color)
-                        zs[ch_id].append(z)
-                        sigmas[ch_id].append(abs(popt[3]))
+                            ax_adc.plot(xf, np.sign(adc.sum()) * box_gaussian(xf, *popt), "--", color=z_color)
+                            zs[ch_id].append(z)
+                            sigmas[ch_id]["val"].append(abs(popt[3]))
+                            sigmas[ch_id]["err"].append(np.sqrt(pcov[3,3]))
                     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                         print(f"Fit failed with {err}")
                         continue
 
+                    ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())
+                    ax_adc.set_title(f"Ch {ch_id}, {voltage:g} V")
+                    ax_adc.set_xlabel("Position in x [mm]")
+                    ax_adc.set_ylabel("Mean ADC")
+                    fig_adc.savefig(voltdir / f"mean_adc_ch_{ch_id}.png", dpi=150)
+                    plt.close(fig_adc)
+
             # Sigma against z for every channel, 2nd order polynomial with outlier rejection
             for ch in channels:
+                fig_zs, ax_zs = plt.subplots(1, 1)
                 color = ch_colors[ch]
                 ch_zs = np.asarray(zs[ch])
                 if ch_zs.size == 0:
                     continue
-                sig = np.asarray(sigmas[ch])
-                ax_zs.plot(ch_zs, 1000 * sig, "o", color=color, label=f"Ch {ch}")
+                sig = np.asarray(sigmas[ch]["val"])
+                sig_err = np.asarray(sigmas[ch]["err"])
+                ax_zs.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, fmt="o", color=color, label=f"Ch {ch}")
                 try:
                     with warnings.catch_warnings():
                         warnings.simplefilter("error", RuntimeWarning)
@@ -112,25 +120,16 @@ class BiasScan(BaseAnalysis):
                             sigmaerr = float(np.sqrt(grad_s.T @ cov @ grad_s))
                             focuses.setdefault(ch, {})[voltage] = (zmin, zerr, sigmamin, sigmaerr)
                         ax_zs.plot(xz, 1000 * np.polyval(coefs, xz),
-                                   color=color, label=f"2nd order poly with min at {zmin:.3f} mm")
+                                   color=color, label=f"Min at {zmin:.3f} mm")
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                     print(f"Fit of sigmas failed with {err}")
 
-            # ax_zs.legend()
-            ax_zs.set_title(f"{voltage:g} V")
-            ax_zs.set_xlabel("Position in z [mm]")
-            ax_zs.set_ylabel("σ in x [µm]")
-            ax_zs.set_ylim(-10, 80)
-            fig_zs.savefig(voltdir / "focus_scan.png", dpi=150)
-            plt.close(fig_zs)
-
-            ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())
-            ax_adc.legend()
-            ax_adc.set_title(f"Ch {CH}, {voltage:g} V")
-            ax_adc.set_xlabel("Position in x [mm]")
-            ax_adc.set_ylabel("Mean ADC")
-            fig_adc.savefig(voltdir / "ch_mean_adc.png", dpi=150)
-            plt.close(fig_adc)
+                ax_zs.set_title(f"{voltage:g} V")
+                ax_zs.set_xlabel("Position in z [mm]")
+                ax_zs.set_ylabel("σ in x [µm]")
+                # ax_zs.set_yim(-10, 80)
+                fig_zs.savefig(voltdir / f"focus_scan_ch_{ch}.png", dpi=150)
+                plt.close(fig_zs)
 
         # Focus position and minimum width against the bias voltage
         fig_f, ax_f = plt.subplots(2, 1, sharex=True)
@@ -143,14 +142,14 @@ class BiasScan(BaseAnalysis):
             ze = np.array([p[1] for _, p in pts])
             sm = np.array([p[2] for _, p in pts])
             se = np.array([p[3] for _, p in pts])
-            z_mask = ze > 10
-            s_mask = se > 2
+            # z_mask = ze > 100000
+            # s_mask = se > 2
 
             ax_f[1].errorbar(
-                volts[z_mask], zm[z_mask], yerr=ze[z_mask], fmt="o-", ms=4, capsize=3,
+                volts, zm, yerr=ze, fmt="o-", ms=4, capsize=3,
                 color=ch_colors[ch])
             ax_f[0].errorbar(
-                volts[s_mask], 1000 * sm[s_mask], yerr=1000 * se[s_mask], fmt="o-", ms=4, capsize=3,
+                volts, 1000 * sm, yerr=1000 * se, fmt="o-", ms=4, capsize=3,
                 color=ch_colors[ch], label=f"Ch {ch}")
         if focuses:
             ax_f[0].legend()
