@@ -223,25 +223,26 @@ class KnifeEdge(BaseAnalysis):
             plt.close(fig_zs)
 
             ax_comp.legend(fontsize="small", framealpha=1)
-            ax_comp.set_title(f"Ch {ch}, {voltage:g} V")
+            ax_comp.set_title(f"{voltage:g} V")
             ax_comp.set_xlabel("Position in z [mm]")
             ax_comp.set_ylabel("σ in x [µm]")
             ax_comp.set_ylim(-10, 80)
-            fig_comp.savefig(self.plotdir / f"Compiled_focus_scan.png", dpi=150)
+            fig_comp.savefig(self.plotdir / f"sigma_min_comparison.png", dpi=150)
             plt.close(fig_comp)
 
         # Comparison of the focus position z_min between the methods
         fig_z, ax_z = plt.subplots(1, 1)
         labels = list(zmins)
-        vals = [zmins[k][0] for k in labels]
-        errs = [zmins[k][1] for k in labels]
+        vals = [1000 * zmins[k][0] for k in labels]
+        errs = [1000 * zmins[k][1] for k in labels]
         colors = {"Knife-edge": "k", **{f"Ch {ch}": ch_colors[ch] for ch in active}}
         for i, (k, v, e) in enumerate(zip(labels, vals, errs)):
             ax_z.errorbar(i, v, yerr=e, fmt="o", capsize=4, color=colors[k])
         ax_z.set_xticks(range(len(labels)), labels)
         ax_z.set_xlim(-0.5, len(labels) - 0.5)
-        ax_z.set_ylabel(r"$z_{\mathrm{min}}$ [mm]")
+        ax_z.set_ylabel(r"$z_{\mathrm{min}}$ [µm]")
         ax_z.set_title("Focus position")
+        ax_z.set_ylim(min(vals)-(min(vals)*0.005), max(vals)+(max(vals)*0.005))
         ax_z.grid(True, axis="y")
         fig_z.savefig(self.plotdir / "zmin_comparison.png", dpi=150)
         plt.close(fig_z)
