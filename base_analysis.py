@@ -121,12 +121,14 @@ class BaseAnalysis(ABC):
         "xmin": None,       # For plot limits
         "xmax": None,
         "style": "",        # path to a matplotlib style file, empty for the default
+        "xerr": 0.00125,    # error on the x stage position [mm], shown as error bars in the plots
+        "zerr": 0.00125,    # error on the z stage position [mm]
     }
 
     # Keys that only plot() or the data reading uses. A change recomputes nothing.
     # Every other key changes the results, so a change runs the analysis again.
     PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size", "xmin", "xmax",
-                                  "eta_neighbours")
+                                  "eta_neighbours", "xerr", "zerr")
 
     # Names of the extra quantities your process() stores, e.g. QUANTITIES = (FIT_SIGMA,).
     # The common ones (COMMON) are always there.

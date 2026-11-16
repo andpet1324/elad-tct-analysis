@@ -1,6 +1,6 @@
 """
 Bias scan: width of the strip response in x (box-gaussian fit) against z for each bias voltage,
-the focus (minimum of a 2nd order polynomial in z) and its change with the voltage.
+the focus (Gaussian beam fit in z: width, focus position, Rayleigh length) and its change with the voltage.
 
     python3 tct.py bias-scan data/*.csv -ped pedestals.csv \
         -plots plots/ -conf config_example.toml -cache cache/run.parquet
@@ -10,13 +10,11 @@ import itertools
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 import numpy as np
-import pandas as pd
 import warnings
-from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN
-from fits import box_gaussian
+from fits import box_gaussian, curve_fit_xerr, fit_beam, beam_width
 
 
 class BiasScan(BaseAnalysis):
@@ -55,7 +53,7 @@ class BiasScan(BaseAnalysis):
 
                     if x.size < 5: # the fit has 5 parameters
                         continue
-                    ax_adc.errorbar(x, adc, yerr=err, fmt="o", ms=3, color=cmap(ci), label=f"z = {z:.2f} mm")
+                    ax_adc.errorbar(x, adc, yerr=err, xerr=self.cfg.xerr, fmt="o", ms=3, color=cmap(ci), label=f"z = {z:.2f} mm")
                     abs_adc = np.abs(adc)
                     # Fit signal and get the stdev
                     argmax = np.argmax(abs_adc)   # SIGNAL IS ABS SO MAX
@@ -70,9 +68,9 @@ class BiasScan(BaseAnalysis):
                         with warnings.catch_warnings():
                             warnings.simplefilter("error", RuntimeWarning)
                             warnings.simplefilter("error", OptimizeWarning)
-                            popt, pcov = curve_fit(
-                                box_gaussian, x, abs_adc, sigma=np.abs(err),
-                                p0=p0, bounds=(lo, hi), maxfev=10000, absolute_sigma=True)
+                            popt, pcov = curve_fit_xerr(
+                                box_gaussian, x, abs_adc, np.abs(err), self.cfg.xerr,
+                                p0=p0, bounds=(lo, hi), maxfev=10000)
                             xf = np.linspace(x.min(), x.max(), 500)
                             ax_adc.plot(xf, np.sign(adc.sum()) * box_gaussian(xf, *popt), "--", color=cmap(ci))
                             zs[ch_id].append(z)
@@ -90,7 +88,7 @@ class BiasScan(BaseAnalysis):
                     fig_adc.savefig(voltdir / f"mean_adc_ch_{ch_id}.png", dpi=150)
                     plt.close(fig_adc)
 
-            # Sigma against z for every channel, 2nd order polynomial with outlier rejection
+            # Sigma against z for every channel, Gaussian beam fit with outlier rejection
             for ch in channels:
                 fig_zs, ax_zs = plt.subplots(1, 1)
                 color = ch_colors[ch]
@@ -99,28 +97,19 @@ class BiasScan(BaseAnalysis):
                     continue
                 sig = np.asarray(sigmas[ch]["val"])
                 sig_err = np.asarray(sigmas[ch]["err"])
-                ax_zs.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, fmt="o", color=color, label=f"Ch {ch}")
+                ax_zs.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, xerr=self.cfg.zerr, fmt="o", color=color, label=f"Ch {ch}")
                 try:
                     with warnings.catch_warnings():
                         warnings.simplefilter("error", RuntimeWarning)
                         warnings.simplefilter("error", OptimizeWarning)
-                        coefs, cov = np.polyfit(ch_zs, sig, 2, w=1/sig_err, cov="unscaled")
-                        residuals = sig - np.polyval(coefs, ch_zs)
-                        mad = np.median(np.abs(residuals - np.median(residuals)))
-                        mask = np.abs(residuals) < 3 * 1.4826 * mad
-                        coefs, cov = np.polyfit(ch_zs[mask], sig[mask], 2, w=1/sig_err[mask], cov="unscaled")
+                        popt, pcov = fit_beam(ch_zs, sig, sig_err, self.cfg.zerr)
+                        w0, z0, zr = popt
+                        e_w0, e_z0, e_zr = np.sqrt(np.diag(pcov))
                         xz = np.linspace(min(ch_zs), max(ch_zs), 100)
-                        zmin = -coefs[1] / (2 * coefs[0])
-                        sigmamin = np.polyval(coefs, zmin)
-                        if coefs[0] > 0 and min(ch_zs) <= zmin <= max(ch_zs):
-                            a, b = coefs[0], coefs[1]
-                            grad = np.array([b / (2 * a**2), -1 / (2 * a)])
-                            zerr = float(np.sqrt(grad.T @ cov[:2, :2] @ grad))
-                            grad_s = np.array([b**2 / (4 * a**2), -b / (2 * a), 1])
-                            sigmaerr = float(np.sqrt(grad_s.T @ cov @ grad_s))
-                            focuses.setdefault(ch, {})[voltage] = (zmin, zerr, sigmamin, sigmaerr)
-                        ax_zs.plot(xz, 1000 * np.polyval(coefs, xz),
-                                   color=color, label=f"Min at {zmin:.3f} mm")
+                        focuses.setdefault(ch, {})[voltage] = (z0, e_z0, w0, e_w0)
+                        ax_zs.plot(xz, 1000 * beam_width(xz, *popt), color=color,
+                                   label=rf"$\sigma_0 = {1000 * w0:.2f} \pm {1000 * e_w0:.2f}$ µm, $z_0 = {z0:.3f}$ mm, $z_R = {zr:.2f} \pm {e_zr:.2f}$ mm")
+                        ax_zs.legend(fontsize="small", framealpha=1)
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                     print(f"Fit of sigmas failed with {err}")
 

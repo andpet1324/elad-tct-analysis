@@ -52,7 +52,17 @@ def clean_adc(adc_x: pd.DataFrame, err_x: pd.DataFrame, active: pd.DataFrame):
 
     return adc_clean, err_clean
 
-def plot_adc(adc_x, err_x, active, visible, title, path, xmin, xmax, ylabel="ADC") -> None:
+def mark_xerr(ax, xerr) -> None:
+    """Heatmaps have no error bars, so show the size of the x error as a small bar in the corner"""
+    x0, x1 = ax.get_xlim()
+    blend = matplotlib.transforms.blended_transform_factory(ax.transData, ax.transAxes)
+    x = x0 + 0.08 * (x1 - x0)
+    ax.errorbar([x], [0.05], xerr=[xerr], fmt="none", ecolor="w", capsize=3, transform=blend)
+    ax.text(x + 0.02 * (x1 - x0), 0.05, rf"$\sigma_x$ = {1000 * xerr:.2f} µm", color="w",
+            fontsize="x-small", va="center", transform=blend)
+
+
+def plot_adc(adc_x, err_x, active, visible, title, path, xmin, xmax, ylabel="ADC", xerr=None) -> None:
     """Mean ADC vs x, one colour per channel, error as a faint band, channel numbers on top"""
     cmap = plt.get_cmap("turbo", len(active))   # discrete: one colour per channel
     fig, ax = plt.subplots(1, 1)
@@ -60,7 +70,7 @@ def plot_adc(adc_x, err_x, active, visible, title, path, xmin, xmax, ylabel="ADC
     for i, ch in enumerate(active):
         colors[ch] = cmap(i)
         y, err = adc_x[ch], err_x[ch]
-        ax.errorbar(adc_x.index, y, yerr=err, color=colors[ch])
+        ax.errorbar(adc_x.index, y, yerr=err, xerr=xerr, color=colors[ch])
         # ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
         # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=1, lw=0)
     ax.set_xlim(xmin, xmax)

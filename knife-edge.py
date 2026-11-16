@@ -7,15 +7,12 @@ Example analysis: mean cleaned ADC against channel, over all runs.
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
-import pandas as pd
 import numpy as np
 import warnings
-from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, INTEGRALS
-from fits import edge, box_gaussian
-from plot_helpers import plot_adc, clean_adc
+from fits import edge, box_gaussian, curve_fit_xerr, fit_beam, beam_width
 
 
 class KnifeEdge(BaseAnalysis):
@@ -46,7 +43,7 @@ class KnifeEdge(BaseAnalysis):
             xs = adc_x.index.to_numpy()[ok]
             ys = adc_x[z].to_numpy()[ok]
             es = err_x[z].reindex(adc_x.index).to_numpy()[ok]
-            ax.errorbar(xs, ys, es, fmt="o", ms=2, label=f"z = {z:.2f} mm")
+            ax.errorbar(xs, ys, es, xerr=self.cfg.xerr, fmt="o", ms=2, label=f"z = {z:.2f} mm")
             try:
                 if xs.size < 6:
                     raise ValueError("too few points")
@@ -68,9 +65,8 @@ class KnifeEdge(BaseAnalysis):
                     p0 = [A0, x0, s0, low]
                     lo = [-np.inf, xs.min(), 1e-4, -np.inf]
                     hi = [np.inf, xs.max(), np.ptp(xs), np.inf]
-                    popt, pcov = curve_fit(
-                        edge, xs, ys, p0=p0, bounds=(lo, hi),
-                        sigma=w_err, absolute_sigma=True, maxfev=10000)
+                    popt, pcov = curve_fit_xerr(
+                        edge, xs, ys, w_err, self.cfg.xerr, p0=p0, bounds=(lo, hi), maxfev=10000)
 
                     # Sanity of the fit
                     chi2 = np.sum(((ys - edge(xs, *popt)) / w_err)**2) / (xs.size - 4)
@@ -98,22 +94,20 @@ class KnifeEdge(BaseAnalysis):
         good = np.isfinite(sig) & np.isfinite(err) & (err > 0)
         zs_g, sig_g, err_g = zs[good], sig[good], err[good]
         fig, ax_zs = plt.subplots(1,1)
-        ax_zs.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o")
-        ax_comp.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o", color="k")
+        ax_zs.errorbar(zs, 1000 * sig, yerr = 1000 * err, xerr=self.cfg.zerr, fmt="o")
+        ax_comp.errorbar(zs, 1000 * sig, yerr = 1000 * err, xerr=self.cfg.zerr, fmt="o", color="k")
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", RuntimeWarning)
                 warnings.simplefilter("error", OptimizeWarning)
-                coefs, cov = np.polyfit(zs_g, sig_g, 2, w=1/err_g, cov="unscaled")
-                residuals = sig_g - np.polyval(coefs, zs_g)
-                mad = np.median(np.abs(residuals - np.median(residuals)))
-                mask = np.abs(residuals) < 3 * 1.4826 * mad
-                coefs, cov_k = np.polyfit(zs_g[mask], sig_g[mask], 2, w=1/err_g[mask], cov="unscaled")
-                zmins["Knife-edge"] = self.vertex(coefs, cov_k)
+                popt_k, cov_k = fit_beam(zs_g, sig_g, err_g, self.cfg.zerr)
+                w0, z0, zr = popt_k
+                e_w0, e_z0, e_zr = np.sqrt(np.diag(cov_k))
+                zmins["Knife-edge"] = (z0, e_z0)
                 x = np.linspace(min(zs_g), max(zs_g), 100)
-                yfit = np.polyval(coefs, x)
-                ax_zs.plot(x, 1000 * yfit, label = rf"2nd order poly: $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
-                ax_comp.plot(x, 1000 * yfit, color="k", label = rf"Knife-edge method with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
+                yfit = beam_width(x, *popt_k)
+                ax_zs.plot(x, 1000 * yfit, label = rf"Beam fit: $\sigma_0 = {1000 * w0:.2f} \pm {1000 * e_w0:.2f}$ µm, $z_0 = {z0:.3f}$ mm, $z_R = {zr:.2f} \pm {e_zr:.2f}$ mm")
+                ax_comp.plot(x, 1000 * yfit, color="k", label = rf"Knife-edge: $\sigma_0 = {1000 * w0:.2f}$ µm, $z_R = {zr:.2f}$ mm")
         except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
             print(f"Fit of sigmas failed with {err}")
         ax_zs.legend(fontsize="small", framealpha=1)
@@ -148,7 +142,7 @@ class KnifeEdge(BaseAnalysis):
                 if adc_x.index.size < 5: # the fit has 5 parameters
                     continue
 
-                ax.errorbar(x, adc, yerr=err, fmt="o", ms=3, color=cmap(ci), label=f"z = {z:.2f} mm")
+                ax.errorbar(x, adc, yerr=err, xerr=self.cfg.xerr, fmt="o", ms=3, color=cmap(ci), label=f"z = {z:.2f} mm")
                 abs_adc = np.abs(adc)
                 # Fit signal and get the stdev
                 argmax = np.argmax(abs_adc)   # SIGNAL IS ABS SO MAX
@@ -163,9 +157,9 @@ class KnifeEdge(BaseAnalysis):
                     with warnings.catch_warnings():
                         warnings.simplefilter("error", RuntimeWarning)
                         warnings.simplefilter("error", OptimizeWarning)
-                        popt, pcov = curve_fit(
-                            box_gaussian, x, abs_adc, sigma=np.abs(err),
-                            p0=p0, bounds=(lo, hi), maxfev=10000, absolute_sigma=True)
+                        popt, pcov = curve_fit_xerr(
+                            box_gaussian, x, abs_adc, np.abs(err), self.cfg.xerr,
+                            p0=p0, bounds=(lo, hi), maxfev=10000)
                         xf = np.linspace(x.min(), x.max(), 500)
                         ax.plot(xf, np.sign(adc.sum()) * box_gaussian(xf, *popt), "--", color=cmap(ci))
                         z_sig[ch_id].append(z)
@@ -192,25 +186,21 @@ class KnifeEdge(BaseAnalysis):
                 continue
             sig = np.asarray(sigmas[ch]["val"])
             sig_err = np.asarray(sigmas[ch]["err"])
-            ax_zs.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, fmt="o", color=color)
-            ax_comp.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, fmt="o", color=color)
+            ax_zs.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, xerr=self.cfg.zerr, fmt="o", color=color)
+            ax_comp.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, xerr=self.cfg.zerr, fmt="o", color=color)
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", RuntimeWarning)
                     warnings.simplefilter("error", OptimizeWarning)
-                    coefs, cov = np.polyfit(ch_zs, sig, 2, w=1/sig_err, cov="unscaled")
-                    residuals = sig - np.polyval(coefs, ch_zs)
-                    mad = np.median(np.abs(residuals - np.median(residuals)))
-                    mask = np.abs(residuals) < 3 * 1.4826 * mad
-                    coefs, cov = np.polyfit(ch_zs[mask], sig[mask], 2, w=1/sig_err[mask], cov="unscaled")
+                    popt_b, cov_b = fit_beam(ch_zs, sig, sig_err, self.cfg.zerr)
+                    w0, z0, zr = popt_b
+                    e_w0, e_z0, e_zr = np.sqrt(np.diag(cov_b))
+                    zmins[f"Ch {ch}"] = (z0, e_z0)
                     xz = np.linspace(min(ch_zs), max(ch_zs), 100)
-                    zmin = -coefs[1] / (2 * coefs[0])
-                    zmins[f"Ch {ch}"] = self.vertex(coefs, cov)
-                    sigmin = 1000 * np.polyval(coefs, xz).min()
-                    ax_zs.plot(xz, 1000 * np.polyval(coefs, xz),
-                            color=color, label=rf"2nd order poly: $\sigma_{{\mathrm{{min}}}} = {sigmin:.2f}$ µm")
-                    ax_comp.plot(xz, 1000 * np.polyval(coefs, xz),
-                            color=color, label=rf"Box-Gaussian method with $\sigma_{{\mathrm{{min}}}} = {sigmin:.2f}$ µm, ch {ch}")
+                    ax_zs.plot(xz, 1000 * beam_width(xz, *popt_b), color=color,
+                            label=rf"Beam fit: $\sigma_0 = {1000 * w0:.2f} \pm {1000 * e_w0:.2f}$ µm, $z_0 = {z0:.3f}$ mm, $z_R = {zr:.2f} \pm {e_zr:.2f}$ mm")
+                    ax_comp.plot(xz, 1000 * beam_width(xz, *popt_b), color=color,
+                            label=rf"Box-Gaussian, ch {ch}: $\sigma_0 = {1000 * w0:.2f}$ µm, $z_R = {zr:.2f}$ mm")
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of sigmas failed with {err}")
 
@@ -246,13 +236,6 @@ class KnifeEdge(BaseAnalysis):
         ax_z.grid(True, axis="y")
         fig_z.savefig(self.plotdir / "zmin_comparison.png", dpi=150)
         plt.close(fig_z)
-
-    @staticmethod
-    def vertex(coefs, cov):
-        """Vertex -b/2a of a parabola and its error from the fit covariance."""
-        a, b = coefs[0], coefs[1]
-        grad = np.array([b / (2 * a**2), -1 / (2 * a)])
-        return -b / (2 * a), float(np.sqrt(grad @ cov[:2, :2] @ grad))
 
 
 

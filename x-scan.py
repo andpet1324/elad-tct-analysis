@@ -10,12 +10,11 @@ import matplotlib.ticker as tck
 import pandas as pd
 import numpy as np
 import warnings
-from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, CHANNEL_HITS
-from fits import box_gaussian
-from plot_helpers import clean_adc, plot_adc
+from fits import box_gaussian, curve_fit_xerr
+from plot_helpers import clean_adc, plot_adc, mark_xerr
 
 
 class XScan(BaseAnalysis):
@@ -51,6 +50,7 @@ class XScan(BaseAnalysis):
         ax.tick_params(which="both", width=1, direction="out")   
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+        mark_xerr(ax, self.cfg.xerr)
         fig.savefig(hitsdir / "hits_map.png", dpi=150)
         plt.close(fig)
 
@@ -71,7 +71,9 @@ class XScan(BaseAnalysis):
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", RuntimeWarning)
                     warnings.simplefilter("error", OptimizeWarning)
-                    popt, pcov = curve_fit(box_gaussian, x, y, p0=p0)
+                    # Counting error sqrt(N), at least 1 so empty positions do not get zero error
+                    popt, pcov = curve_fit_xerr(box_gaussian, x, y, np.sqrt(np.maximum(y, 1)),
+                                                self.cfg.xerr, p0=p0)
                 fig, ax = plt.subplots(1, 1)
                 xr = np.linspace(x.min(), x.max(), 1000)
                 ax.plot(x, y)
@@ -96,7 +98,8 @@ class XScan(BaseAnalysis):
 
         fig, ax = plt.subplots(1, 1)
         for ch in active:
-            ax.plot(hits.index, hits[ch], "-o", ms=2, label=f"Ch {int(ch)}")
+            ax.errorbar(hits.index, hits[ch], yerr=np.sqrt(np.maximum(hits[ch], 1)), xerr=self.cfg.xerr,
+                        fmt="-o", ms=2, label=f"Ch {int(ch)}")
         ax.set_xlabel("Position in x [mm]")
         ax.set_ylabel("Hits")
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
@@ -129,12 +132,12 @@ class XScan(BaseAnalysis):
 
         # ADC vs pos and channel
         plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png",
-                 self.cfg.xmin, self.cfg.xmax)
+                 self.cfg.xmin, self.cfg.xmax, xerr=self.cfg.xerr)
 
         adc_clean, err_clean = clean_adc(adc_x, err_x, active)
 
         plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png",
-                 self.cfg.xmin, self.cfg.xmax)
+                 self.cfg.xmin, self.cfg.xmax, xerr=self.cfg.xerr)
 
         # Charge fractions need the absolute values, not the per-channel normalized ones
         charge, charge_err = adc_clean.abs(), err_clean.copy()
@@ -143,7 +146,7 @@ class XScan(BaseAnalysis):
         err_clean = err_clean.abs() / adc_clean.abs().max()
         adc_clean = adc_clean.abs() / adc_clean.abs().max()
         plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_normalized.png",
-                 self.cfg.xmin, self.cfg.xmax)
+                 self.cfg.xmin, self.cfg.xmax, xerr=self.cfg.xerr)
 
         # Heatmap
         fig, ax = plt.subplots(1, 1)
@@ -157,6 +160,7 @@ class XScan(BaseAnalysis):
         ax.tick_params(which="both", width=1, direction="out")   
         ax.set_title(title)
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+        mark_xerr(ax, self.cfg.xerr)
         fig.savefig(adcdir / "adc_map.png", dpi=150)
         plt.close(fig)
 
@@ -187,7 +191,7 @@ class XScan(BaseAnalysis):
         frac = pd.DataFrame(frac)
         err_frac = pd.DataFrame(err_frac)
         plot_adc(100 * frac, 100 * err_frac, active, visible, title, adcdir / "eta-function.png",
-                      self.cfg.xmin, self.cfg.xmax, ylabel="Charge fraction [%]")
+                      self.cfg.xmin, self.cfg.xmax, ylabel="Charge fraction [%]", xerr=self.cfg.xerr)
 
 
 
