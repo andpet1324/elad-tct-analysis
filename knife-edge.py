@@ -98,7 +98,7 @@ class KnifeEdge(BaseAnalysis):
         zs_g, sig_g, err_g = zs[good], sig[good], err[good]
         fig, ax_zs = plt.subplots(1,1)
         ax_zs.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o")
-        ax_comp.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o")
+        ax_comp.errorbar(zs, 1000 * sig, yerr = 1000 * err, fmt="o", color="k")
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", RuntimeWarning)
@@ -111,7 +111,7 @@ class KnifeEdge(BaseAnalysis):
                 x = np.linspace(min(zs_g), max(zs_g), 100)
                 yfit = np.polyval(coefs, x)
                 ax_zs.plot(x, 1000 * yfit, label = rf"2nd order poly: $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
-                ax_comp.plot(x, 1000 * yfit, label = rf"Knife-edge method with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
+                ax_comp.plot(x, 1000 * yfit, color="k", label = rf"Knife-edge method with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
         except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
             print(f"Fit of sigmas failed with {err}")
         ax_zs.legend(fontsize="small", framealpha=1)
@@ -180,9 +180,11 @@ class KnifeEdge(BaseAnalysis):
             fig.savefig(adcdir / f"adc_ch_{ch_id}.png", dpi=150)
             plt.close(fig)
 
+        # One distinct colour per channel, the knife-edge is black
+        ch_colors = {ch: plt.get_cmap("tab10")(i) for i, ch in enumerate(active)}
         for ch in active:
             fig_zs, ax_zs = plt.subplots(1, 1)
-            color = cmap(ch)
+            color = ch_colors[ch]
             ch_zs = np.asarray(z_sig[ch])
             if ch_zs.size == 0:
                 continue
@@ -201,10 +203,11 @@ class KnifeEdge(BaseAnalysis):
                     coefs, cov = np.polyfit(ch_zs[mask], sig[mask], 2, w=1/sig_err[mask], cov="unscaled")
                     xz = np.linspace(min(ch_zs), max(ch_zs), 100)
                     zmin = -coefs[1] / (2 * coefs[0])
+                    sigmin = 1000 * np.polyval(coefs, xz).min()
                     ax_zs.plot(xz, 1000 * np.polyval(coefs, xz),
-                            color=color, label=rf"2nd order poly: $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm")
+                            color=color, label=rf"2nd order poly: $\sigma_{{\mathrm{{min}}}} = {sigmin:.2f}$ µm")
                     ax_comp.plot(xz, 1000 * np.polyval(coefs, xz),
-                            color=color, label=rf"Box-Gaussian method with $\sigma_{{\mathrm{{min}}}} = {1000 * yfit.min():.2f}$ µm, ch {ch_id}")
+                            color=color, label=rf"Box-Gaussian method with $\sigma_{{\mathrm{{min}}}} = {sigmin:.2f}$ µm, ch {ch}")
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of sigmas failed with {err}")
 
