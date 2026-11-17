@@ -41,17 +41,46 @@ def fit_beam(z, sig, err, zerr, k=3, maxfev=10000):
     fit are left out of the second.
     """
     z, sig, err = (np.asarray(a, dtype=float) for a in (z, sig, err))
+    if z.size < 6:
+        raise ValueError(f"too few points for a beam fit ({z.size})")
     span = max(np.ptp(z), 1e-9)
+    # A Rayleigh length shorter than the z step can not be resolved by the scan
+    step = np.median(np.diff(np.sort(z)))
+    zr_min = max(step, 1e-3 * span)
     i = np.argmin(sig)
-    p0 = [sig[i], z[i], span / 2]
-    bounds = ([0, z.min(), 1e-3 * span], [np.inf, z.max(), 100 * span])
+    p0 = [sig[i], z[i], max(span / 2, 2 * zr_min)]
+    bounds = ([0, z.min(), zr_min], [np.inf, z.max(), 100 * span])
     popt, _ = curve_fit_xerr(beam_width, z, sig, err, zerr, p0=p0, bounds=bounds, maxfev=maxfev)
     res = sig - beam_width(z, *popt)
     mad = np.median(np.abs(res - np.median(res)))
     keep = np.abs(res) < k * 1.4826 * mad if mad > 0 else np.ones(z.size, dtype=bool)
-    if keep.sum() < 4:   # 3 parameters, do not throw away what the fit needs
+    if keep.sum() < 6:   # 3 parameters, do not throw away what the fit needs
         keep = np.ones(z.size, dtype=bool)
-    return curve_fit_xerr(beam_width, z[keep], sig[keep], err[keep], zerr, p0=popt, bounds=bounds, maxfev=maxfev)
+    zk = z[keep]
+    popt, pcov = curve_fit_xerr(beam_width, zk, sig[keep], err[keep], zerr, p0=popt, bounds=bounds, maxfev=maxfev)
+    w0, z0, zr = popt
+
+    # Checks, a failed one raises ValueError with the reason
+    if not np.all(np.isfinite(pcov)):
+        raise ValueError(f"covariance is not finite, params {popt}")
+    if zr < 1.05 * zr_min or zr > 0.95 * bounds[1][2]:
+        raise ValueError(f"z_R = {zr:.4g} is at its bound ({zr_min:.3g} .. {bounds[1][2]:.3g}), params {popt}")
+    if w0 < 1e-6:
+        raise ValueError(f"sigma_0 = {w0:.3g} is at zero")
+    if z0 <= zk.min() + 0.01 * span or z0 >= zk.max() - 0.01 * span:
+        raise ValueError(f"focus z_0 = {z0:.4g} is at the edge of the scan, not a minimum in the data")
+    if (zk < z0).sum() < 2 or (zk > z0).sum() < 2:
+        raise ValueError(f"fewer than 2 points on one side of the focus z_0 = {z0:.4g}")
+
+    # The scatter is often larger than the errors. Scale the covariance to chi2/ndf = 1 then.
+    chi2 = np.sum(((sig[keep] - beam_width(zk, *popt)) / err[keep]) ** 2) / (zk.size - 3)
+    if chi2 > 1:
+        pcov = pcov * chi2
+    e_w0, _, e_zr = np.sqrt(np.diag(pcov))
+    if e_zr > zr or e_w0 > w0:
+        raise ValueError(f"errors larger than the values: z_R = {zr:.3g} +- {e_zr:.3g}, "
+                         f"sigma_0 = {w0:.3g} +- {e_w0:.3g}, chi2/ndf = {chi2:.1f}")
+    return popt, pcov
 
 
 def polyfit_xerr(x, y, yerr, xerr, deg=2, n_iter=2):
