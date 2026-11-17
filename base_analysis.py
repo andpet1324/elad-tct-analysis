@@ -187,8 +187,7 @@ class BaseAnalysis(ABC):
 
         # Integral: sum over the channels in the window for each trigger ("run" in the file), then the
         # mean over the triggers. A plain array, since pandas gives NA and not NaN for a missing value.
-        # window = df["channel"].between(self.cfg.chmin, self.cfg.chmax)
-        window = df["channel"].isin([86])
+        window = df["channel"].between(self.cfg.chmin, self.cfg.chmax)
         per_trigger = df[window].groupby("run")["adc_clean"].sum().to_numpy(dtype=float, na_value=np.nan)
         n = per_trigger.size
         integral = {"value": per_trigger.mean() if n else np.nan,

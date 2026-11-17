@@ -34,7 +34,7 @@ def beam_width(z, w0, z0, zr):
     return w0 * np.sqrt(1 + ((z - z0) / zr) ** 2)
 
 
-def fit_beam(z, sig, err, zerr, k=3):
+def fit_beam(z, sig, err, zerr, k=3, maxfev=10000):
     """Fit beam_width to the widths sig(z) with errors on both axes and one round of outlier rejection.
 
     Returns popt = (w0, z0, zr) and its covariance. Points further than k robust sigma from the first
@@ -45,13 +45,13 @@ def fit_beam(z, sig, err, zerr, k=3):
     i = np.argmin(sig)
     p0 = [sig[i], z[i], span / 2]
     bounds = ([0, z.min(), 1e-3 * span], [np.inf, z.max(), 100 * span])
-    popt, _ = curve_fit_xerr(beam_width, z, sig, err, zerr, p0=p0, bounds=bounds, maxfev=10000)
+    popt, _ = curve_fit_xerr(beam_width, z, sig, err, zerr, p0=p0, bounds=bounds, maxfev=maxfev)
     res = sig - beam_width(z, *popt)
     mad = np.median(np.abs(res - np.median(res)))
     keep = np.abs(res) < k * 1.4826 * mad if mad > 0 else np.ones(z.size, dtype=bool)
     if keep.sum() < 4:   # 3 parameters, do not throw away what the fit needs
         keep = np.ones(z.size, dtype=bool)
-    return curve_fit_xerr(beam_width, z[keep], sig[keep], err[keep], zerr, p0=popt, bounds=bounds, maxfev=10000)
+    return curve_fit_xerr(beam_width, z[keep], sig[keep], err[keep], zerr, p0=popt, bounds=bounds, maxfev=maxfev)
 
 
 def polyfit_xerr(x, y, yerr, xerr, deg=2, n_iter=2):

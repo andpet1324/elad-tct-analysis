@@ -18,8 +18,9 @@ from plot_helpers import clean_adc, plot_adc, mark_xerr
 
 
 class XScan(BaseAnalysis):
+    DEFAULTS = {**BaseAnalysis.DEFAULTS, "update_config": False,}
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
-    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
+    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x","update_config",)
 
     # Contains the data per position basically
     def plot(self) -> None:
@@ -94,7 +95,8 @@ class XScan(BaseAnalysis):
                 break
 
         # Save the mapping in the config, other scans can use it as cfg.ch_to_x
-        self.update_config(ch_to_x=ch_to_x)
+        if self.cfg.update_config:
+            self.update_config(ch_to_x=ch_to_x)
 
         fig, ax = plt.subplots(1, 1)
         for ch in active:

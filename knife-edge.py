@@ -43,10 +43,6 @@ class KnifeEdge(BaseAnalysis):
             xs = adc_x.index.to_numpy()[ok]
             ys = adc_x[z].to_numpy()[ok]
             es = err_x[z].reindex(adc_x.index).to_numpy()[ok]
-            argmin = ys.argmin()+2
-            xs = xs[:argmin]
-            ys = ys[:argmin]
-            es = es[:argmin]
             ax.errorbar(xs, ys, es, xerr=self.cfg.xerr, fmt="o", ms=2, label=f"z = {z:.2f} mm")
             try:
                 if xs.size < 6:
@@ -106,7 +102,8 @@ class KnifeEdge(BaseAnalysis):
             with warnings.catch_warnings():
                 warnings.simplefilter("error", RuntimeWarning)
                 warnings.simplefilter("error", OptimizeWarning)
-                popt_k, cov_k = fit_beam(zs_g, sig_g, err_g, self.cfg.zerr)
+                maxfev = 10000
+                popt_k, cov_k = fit_beam(zs_g, sig_g, err_g, self.cfg.zerr, maxfev=maxfev)
                 w0, z0, zr = popt_k
                 e_w0, e_z0, e_zr = np.sqrt(np.diag(cov_k))
                 zmins["Knife-edge"] = (z0, e_z0)

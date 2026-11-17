@@ -1,0 +1,46 @@
+# Example config, every key is optional and shown here with its default.
+# Unknown keys are an error.
+
+# Cleaning steps in order, see cleaning.py
+pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"]
+
+empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
+allowance = 5
+
+# Region of interest
+chmin = 80
+chmax = 110
+
+# |adc_clean| above this is a hit
+hit_threshold = 20
+
+# Delay search
+time_threshold = 18
+default_delay = 50
+default_time_window = 10.0
+# Just uses default values
+use_default_delay = true
+
+# Make a plot after each cleaning step for this run
+plot_run = 30
+
+chunk_size = 100
+
+# Only use scan positions inside this range, leave out for all
+# zmin = 31.0
+# zmax = 32.5
+xmin = 7.90
+xmax = 9.15
+
+pitch = 0.055 # mm
+
+eta_neighbours = 1
+
+# Channel to x position [mm]. Written by x-scan.py, other scans can use it as cfg.ch_to_x
+ch_to_x = {86 = 7.957309053953581, 87 = 8.012309053953581, 88 = 8.067309053953581, 89 = 8.12230905395358, 90 = 8.17730905395358, 91 = 8.23230905395358, 92 = 8.287309053953582, 93 = 8.342309053953581, 94 = 8.397309053953581, 95 = 8.45230905395358, 96 = 8.50730905395358, 97 = 8.56230905395358, 98 = 8.617309053953582, 99 = 8.672309053953581, 100 = 8.727309053953581, 101 = 8.78230905395358, 102 = 8.83730905395358, 103 = 8.89230905395358, 104 = 8.947309053953582, 105 = 9.002309053953581, 106 = 9.057309053953581}
+
+style = "/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle"
+
+# Systematic errors on the Standa stages
+xerr = 0.00125 # 1.25 micron
+zerr = 0.00125 # 1.25 micron
