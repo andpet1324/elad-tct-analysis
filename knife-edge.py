@@ -22,8 +22,6 @@ class KnifeEdge(BaseAnalysis):
 
     # Contains the data per position basically
     def plot(self) -> None:
-        if self.cfg.style:
-            plt.style.use(self.cfg.style)
         # Define subdirs
         fitdir = isdir(self.plotdir / "fits")
         adcdir = isdir(self.plotdir / "adc")

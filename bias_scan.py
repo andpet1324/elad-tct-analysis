@@ -24,8 +24,6 @@ class BiasScan(BaseAnalysis):
     PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x", "channels", "ch")
 
     def plot(self) -> None:
-        if self.cfg.style:
-            plt.style.use(self.cfg.style)
         biasdir = isdir(self.plotdir / "bias")
         channels = sorted(set(self.cfg.channels))
 

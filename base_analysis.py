@@ -143,8 +143,13 @@ class BaseAnalysis(ABC):
     def __init__(self, argv: list[str] | None = None) -> None:
         self.args = self.build_parser().parse_args(argv)
         self.cfg = self.load_config(self.args.config)
-        if self.cfg.style and pathlib.Path(self.cfg.style).exists():
-            plt.style.use(self.cfg.style)
+        if self.cfg.style:
+            style = pathlib.Path(self.cfg.style)
+            if not style.exists():
+                fallback = pathlib.Path(__file__).parent / style.name
+                print(f"WARNING: style file {style} not found, using {fallback}")
+                style = fallback
+            plt.style.use(str(style))
 
         self.plotdir = isdir(self.args.plots)
         self.subdir = isdir(self.plotdir / "cleaning")
