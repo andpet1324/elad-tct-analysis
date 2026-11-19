@@ -13,10 +13,11 @@ def col_vs_channel(df: pd.DataFrame, path: pathlib.Path, title: str = "",
                       col: str = "adc_clean", col_label: str = "ADC") -> None:
     """Every entry of `column` against channel, with the per channel mean on top"""
     fig, ax = plt.subplots(1, 1)
+    title_suff = f", {df["voltage"].iloc[0]} V, x = {df["x"].iloc[0]:.3f} mm, z = {df["z"].iloc[0]:.3f} mm"
     ax.plot(df["channel"], df[col], "o", ms=2, alpha=0.3)
     mean = df.groupby("channel")[col].mean()
     ax.plot(mean.index, mean.values, "-", color="k", lw=1)
-    ax.set_title(title)
+    ax.set_title(title + title_suff)
     ax.set_xlabel("Channel")
     ax.set_ylabel("ADC")
     fig.savefig(path, dpi=150)
@@ -51,15 +52,6 @@ def clean_adc(adc_x: pd.DataFrame, err_x: pd.DataFrame, active: pd.DataFrame):
     err_clean = err_clean.loc[ok]
 
     return adc_clean, err_clean
-
-def mark_xerr(ax, xerr) -> None:
-    """Heatmaps have no error bars, so show the size of the x error as a small bar in the corner"""
-    x0, x1 = ax.get_xlim()
-    blend = matplotlib.transforms.blended_transform_factory(ax.transData, ax.transAxes)
-    x = x0 + 0.08 * (x1 - x0)
-    ax.errorbar([x], [0.05], xerr=[xerr], fmt="none", ecolor="w", capsize=3, transform=blend)
-    ax.text(x + 0.02 * (x1 - x0), 0.05, rf"$\sigma_x$ = {1000 * xerr:.2f} µm", color="w",
-            fontsize="x-small", va="center", transform=blend)
 
 
 def plot_adc(adc_x, err_x, active, visible, title, path, xmin, xmax, ylabel="ADC", xerr=None) -> None:

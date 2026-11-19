@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 import pathlib
 from tqdm import tqdm
 
-plt.style.use("/home/teleuser/ELAD/tct/elad-tct-analysis/paper-style.mplstyle")
-
 BINS = 100
 
 def gaussian(x, a, mean, stdev):

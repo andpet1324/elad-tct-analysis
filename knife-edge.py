@@ -22,6 +22,8 @@ class KnifeEdge(BaseAnalysis):
 
     # Contains the data per position basically
     def plot(self) -> None:
+        if self.cfg.style:
+            plt.style.use(self.cfg.style)
         # Define subdirs
         fitdir = isdir(self.plotdir / "fits")
         adcdir = isdir(self.plotdir / "adc")
@@ -34,6 +36,7 @@ class KnifeEdge(BaseAnalysis):
 
         d = self.get(INTEGRALS)
         d = d.astype({"x": float, "z": float, "value": float, "error": float,"voltage": float})
+        d = d[d["z"] != 32.0]
         adc_x = d.pivot_table(index="x", columns="z", values="value", aggfunc="mean")
         err_x = d.pivot_table(index="x", columns="z", values="error", aggfunc="mean")
         for z in adc_x.columns:

@@ -14,7 +14,7 @@ from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, CHANNEL_HITS
 from fits import box_gaussian, curve_fit_xerr
-from plot_helpers import clean_adc, plot_adc, mark_xerr
+from plot_helpers import clean_adc, plot_adc
 
 
 class XScan(BaseAnalysis):
@@ -24,6 +24,8 @@ class XScan(BaseAnalysis):
 
     # Contains the data per position basically
     def plot(self) -> None:
+        if self.cfg.style:
+            plt.style.use(self.cfg.style)
         # Define subdirs
         fitdir = isdir(self.plotdir / "fits")
         hitsdir = isdir(self.plotdir / "hits")
@@ -34,10 +36,13 @@ class XScan(BaseAnalysis):
 
         # HITS PER X POSITION
         d = self.get(CHANNEL_HITS)
+        zs, volts = d["z"].unique(), d["voltage"].unique()
         # Rows are x, columns are channels, mean over files at the same x (e.g. several z)
         hits = d.astype({"x": float, "channel": float, "value": float}).pivot_table(
             index="x", columns="channel", values="value", aggfunc="mean")
         active = hits.columns[hits.sum() > 0.05 * hits.sum().max()]   # channels with real hits
+        # z and voltage of the scan for the titles
+        title = f"z = {', '.join(f'{v:.2f}' for v in sorted(zs))} mm, V = {', '.join(f'{v:g}' for v in sorted(volts))} V"
 
         # Heatmap channels vs x pos
         fig, ax = plt.subplots(1, 1)
@@ -51,7 +56,6 @@ class XScan(BaseAnalysis):
         ax.tick_params(which="both", width=1, direction="out")   
         ax.set_title(f"{self.cfg.hit_threshold} ADC hit threshold")
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
-        mark_xerr(ax, self.cfg.xerr)
         fig.savefig(hitsdir / "hits_map.png", dpi=150)
         plt.close(fig)
 
@@ -87,12 +91,27 @@ class XScan(BaseAnalysis):
             # Check: is the fit good?
             # Consider adding a more specific check here
             if (abs(popt[0] - y.max()) < y.max()/10):
-                print(f"Channel position extracted from ch {ch}")
                 ch_to_x[ch] = popt[1]
-                # Now define the other channels with pitch
-                for ch2 in active:
-                    ch_to_x[ch2] = popt[1] + self.cfg.pitch * (ch2 - ch)
-                break
+
+        fig_ch, ax_ch = plt.subplots(1,1)
+        channels, x_mean = zip(*ch_to_x.items())
+        ax_ch.errorbar(channels, x_mean, yerr=self.cfg.xerr, fmt='o')
+        try:
+            xerr = np.broadcast_to(np.asarray(self.cfg.xerr, dtype=float), 
+                                   np.shape(x_mean))
+            popt, pcov = np.polyfit(channels, x_mean, 1, 
+                                    w=1/xerr, cov=True)
+            xr = np.linspace(min(channels), max(channels), 1000)
+            ax_ch.plot(xr, np.polyval(popt, xr))
+            for ch in ch_to_x.keys():
+                ch_to_x[ch] = np.polyval(popt, ch)
+        except Exception as err:
+            print(f"fit failed with {err}!")
+
+        ax_ch.set_xlabel("Channel")
+        ax_ch.set_ylabel(rf"x$_{{mean}}$ [mm]")
+        ax_ch.set_title(title)
+        fig_ch.savefig(fitdir / "ch_to_x.png", dpi=150)
 
         # Save the mapping in the config, other scans can use it as cfg.ch_to_x
         if self.cfg.update_config:
@@ -128,10 +147,6 @@ class XScan(BaseAnalysis):
         err_x = d.pivot_table(index="x", columns="channel", values="error", aggfunc="mean")
         err_x = err_x.reindex(index=adc_x.index, columns=adc_x.columns)
 
-        # z and voltage of the scan for the titles
-        zs, volts = d["z"].unique(), d["voltage"].unique()
-        title = f"z = {', '.join(f'{v:.2f}' for v in sorted(zs))} mm, V = {', '.join(f'{v:g}' for v in sorted(volts))} V"
-
         # ADC vs pos and channel
         plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png",
                  self.cfg.xmin, self.cfg.xmax, xerr=self.cfg.xerr)
@@ -162,7 +177,6 @@ class XScan(BaseAnalysis):
         ax.tick_params(which="both", width=1, direction="out")   
         ax.set_title(title)
         ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
-        mark_xerr(ax, self.cfg.xerr)
         fig.savefig(adcdir / "adc_map.png", dpi=150)
         plt.close(fig)
 
@@ -177,21 +191,21 @@ class XScan(BaseAnalysis):
             q = charge.reindex(columns=cols)
             e = charge_err.reindex(columns=cols)
 
-            S = q.sum(axis=1, min_count=3)   # NaN if any of the three is missing
-            f = q[ch] / S
-            # Only where the beam is on this strip, elsewhere it is noise over noise
-            near = (f.index.to_series() - ch_to_x[ch]).abs() < self.cfg.pitch
+            s = q.sum(axis=1, min_count=3)
+            f = q[ch] / s
+            near = (f.index.to_series() - ch_to_x[ch]).abs() < 1.5*self.cfg.pitch
             f = f.where(near.to_numpy())
 
             # Error on f = Q_c / (Q_l + Q_c + Q_r), uncorrelated per-channel errors
             s_c2 = e[ch] ** 2
             s_side2 = e[ch - 1] ** 2 + e[ch + 1] ** 2
-            var = ((1 - f) ** 2 * s_c2 + f ** 2 * s_side2) / S ** 2
+            var = ((1 - f) ** 2 * s_c2 + f ** 2 * s_side2) / s ** 2
 
             frac[ch] = f
             err_frac[ch] = np.sqrt(var)
         frac = pd.DataFrame(frac)
         err_frac = pd.DataFrame(err_frac)
+        title = title + rf", $\eta$ neighbours = $\pm${self.cfg.eta_neighbours}"
         plot_adc(100 * frac, 100 * err_frac, active, visible, title, adcdir / "eta-function.png",
                       self.cfg.xmin, self.cfg.xmax, ylabel="Charge fraction [%]", xerr=self.cfg.xerr)
 
