@@ -8,8 +8,8 @@ empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
 allowance = 5
 
 # Region of interest
-chmin = 70
-chmax = 130
+chmin = 106
+chmax = 109
 
 # |adc_clean| above this is a hit
 hit_threshold = 20
@@ -22,7 +22,7 @@ default_time_window = 10.0
 use_default_delay = true
 
 # Make a plot after each cleaning step for this run
-plot_run = 200
+plot_run = 100
 
 chunk_size = 100
 
