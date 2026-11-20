@@ -32,9 +32,15 @@ def _stamp(path: pathlib.Path) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(path.stat().st_mtime))
 
 
-def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = False, on_file=None) -> pd.DataFrame:
-    """on_file(n) is called when n more files are done, for a progress bar"""
+def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = False, on_file=None,
+              param: str | None = None) -> pd.DataFrame:
+    """on_file(n) is called when n more files are done, for a progress bar.
+    param is a header key that is saved as a column too (the config key `param`)."""
     on_file = on_file or (lambda n: None)
+    keep = ("run_id", "x", "z", "voltage") + ((param,) if param and param not in ("run_id", "x", "z", "voltage") else ())
+    if cache is not None and cache.exists() and not rebuild and param and param not in pq.read_schema(cache).names:
+        tqdm.write(f"Cache {cache.name} has no {param!r} column, rebuilding")
+        rebuild = True
     if cache is not None and cache.exists() and not rebuild:
         newest = max(paths, key=lambda p: p.stat().st_mtime)
         if cache.stat().st_mtime > newest.stat().st_mtime:
@@ -51,7 +57,9 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
         with open(path) as f:
             meta = json.loads(f.readline().lstrip("# "))
         meta.pop("channels", None)
-        keep = ("run_id", "x", "z", "voltage")
+        missing = [k for k in keep if k not in meta]
+        if missing:
+            raise KeyError(f"{path.name}: header has no {missing}, it has {sorted(meta)}")
         meta = {k: meta[k] for k in keep}
         df = pd.read_csv(path, header=1)
         # One bad value makes pandas read a whole column as float or text, and the files then
@@ -91,14 +99,15 @@ def load_data(paths, cache: pathlib.Path | None, chunk: int, rebuild: bool = Fal
     return df
 
 
-def load_chunk(paths, cache: pathlib.Path | None, k: int, CHUNK_SIZE: int, rebuild: bool = False, on_file=None) -> pd.DataFrame:
+def load_chunk(paths, cache: pathlib.Path | None, k: int, CHUNK_SIZE: int, rebuild: bool = False, on_file=None,
+               param: str | None = None) -> pd.DataFrame:
     """Loads files k*100 ... (k+1)*100 - 1, with their own numbered cache."""
     paths = sorted(paths)
     chunk = paths[k * CHUNK_SIZE:(k + 1) * CHUNK_SIZE]
     chunk_cache = None
     if cache is not None:
         chunk_cache = cache.with_name(f"{cache.stem}_{k:03d}{cache.suffix}")
-    return load_data(chunk, chunk_cache, k, rebuild, on_file)
+    return load_data(chunk, chunk_cache, k, rebuild, on_file, param)
 
 
 def isdir(dir):

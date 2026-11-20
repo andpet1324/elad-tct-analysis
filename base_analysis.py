@@ -329,7 +329,7 @@ class BaseAnalysis(ABC):
         """Build the parsed data caches chunk by chunk to not overload the memory"""
         for k in range(self.n_chunks if self.paths else 0):
             load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size, self.args.rebuild_data,
-                       on_file=self.steps.advance)
+                       on_file=self.steps.advance, param=self.cfg.param)
 
     # ---------------- Data access ----------------
     @contextmanager
@@ -343,7 +343,7 @@ class BaseAnalysis(ABC):
         df_id = -1
         for k in range(self.n_chunks):
             with self.timed("load chunk"):
-                df_all = (load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size) if self.paths
+                df_all = (load_chunk(self.paths, self.args.cache, k, self.cfg.chunk_size, param=self.cfg.param) if self.paths
                           else read_chunk_cache(self.cache_chunks[k]))
                 runs = [g for _, g in df_all.groupby("run_id")]
             del df_all
