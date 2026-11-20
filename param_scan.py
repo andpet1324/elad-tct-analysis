@@ -1,5 +1,5 @@
 """
-Example analysis: mean cleaned ADC against channel, over all runs.
+Example analysis: scans a select header parameter.
 
     python3 adc_vs_channel_ana.py data/*.csv -ped pedestals.csv \
         -plots plots/ -conf config_example.toml -cache cache/run.parquet
@@ -11,14 +11,14 @@ import numpy as np
 import warnings
 from scipy.optimize import OptimizeWarning
 
-from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, INTEGRALS
-from fits import edge, box_gaussian, curve_fit_xerr, fit_beam, beam_width
+from base_analysis import BaseAnalysis, isdir, ADC_CLEAN
+from fits import box_gaussian, curve_fit_xerr, fit_beam, beam_width
 
 
-class Focus(BaseAnalysis):
-    DEFAULTS = {**BaseAnalysis.DEFAULTS, "active": [86, 87]}
+class ParamScan(BaseAnalysis):
+    DEFAULTS = {**BaseAnalysis.DEFAULTS, "param": "triggers"}
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
-    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x", "active",)
+    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x", "param",)
 
 
     # Contains the data per position basically
@@ -32,6 +32,7 @@ class Focus(BaseAnalysis):
         active = [ch for ch in range(self.cfg.chmin, self.cfg.chmax+1)]
         ch_to_x = self.cfg.ch_to_x
         # Average over the runs for each channel
+        params = d.groupby("")
         d = d.astype({"x": float, "channel": float, "value": float, "error": float, "z": float, "voltage": float})
         d = d[d["channel"].isin(active)]
         voltage = d["voltage"].iloc[0]
@@ -117,4 +118,4 @@ class Focus(BaseAnalysis):
 
 
 if __name__ == "__main__":
-    Focus().run()
+    ParamScan().run()

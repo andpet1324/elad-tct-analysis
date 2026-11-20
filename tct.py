@@ -20,10 +20,11 @@ HERE = pathlib.Path(__file__).parent
 
 # name on the command line: (file, class)
 ANALYSES = {
-    "x-scan": ("x-scan.py", "XScan"),
-    "focus": ("focus.py", "Focus"),
-    "knife-edge": ("knife-edge.py", "KnifeEdge"),
+    "x-scan": ("x_scan.py", "XScan"),
+    "focus": ("focus_scan.py", "Focus"),
+    "knife-edge": ("knife_edge_scan.py", "KnifeEdge"),
     "bias-scan": ("bias_scan.py", "BiasScan"),
+    "param-scan": ("param_scan.py", "ParamScan")
 }
 
 
