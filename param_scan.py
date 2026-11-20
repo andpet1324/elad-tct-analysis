@@ -25,14 +25,15 @@ class ParamScan(BaseAnalysis):
     def plot(self) -> None:
         # Define subdirs
 
-
         """" --------------- ADC PLOTS ---------------"""
         d = self.get(ADC_CLEAN)
         active = [ch for ch in range(self.cfg.chmin, self.cfg.chmax+1)]
         ch_to_x = self.cfg.ch_to_x
         # Average over the runs for each channel
         params = d.groupby(self.cfg.param)
+        param_values = {}
         for par_id, par_df in params:
+            print(par_id)
             pardir = isdir(self.plotdir / str(par_id))
             focusdir = isdir(pardir / "focus")
             adcdir = isdir(pardir / "adc")
@@ -73,8 +74,16 @@ class ParamScan(BaseAnalysis):
                             ax.plot(xf, np.sign(adc.sum()) * box_gaussian(xf, *popt), "--", color=cmap(ci))
                             if z not in sigmas:
                                 sigmas[ch_id].setdefault(z, {"val": [], "err": []})
-                            sigmas[ch_id][z]["val"].append(abs(popt[3]))
-                            sigmas[ch_id][z]["err"].append(np.sqrt(pcov[3,3]))
+                            sigma = abs(popt[3])
+                            sigma_err = np.sqrt(pcov[3,3])
+                            sigmas[ch_id][z]["val"].append(sigma)
+                            sigmas[ch_id][z]["err"].append(sigma_err)
+                            if ch_id not in param_values:
+                                param_values.setdefault(ch_id, {})
+                            if par_id not in param_values[ch_id]:
+                                param_values[ch_id].setdefault(par_id, {})
+                            param_values[ch_id][par_id]["val"] = sigma
+                            param_values[ch_id][par_id]["err"] = sigma_err
                     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                         print(f"Fit failed with {err}")
                         continue
@@ -107,13 +116,23 @@ class ParamScan(BaseAnalysis):
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                     print(f"Fit of sigmas failed with {err}")
 
-                ax_zs.legend(fontsize="small", framealpha=1)
                 ax_zs.set_title(f"Ch {ch}, {voltage:g} V")
                 ax_zs.set_xlabel("Position in z [mm]")
                 ax_zs.set_ylabel("σ in x [µm]")
                 ax_zs.set_ylim(-10, 80)
                 fig_zs.savefig(focusdir / f"focus_scan_ch_{ch}.png", dpi=150)
                 plt.close(fig_zs)
+
+        for ch in param_values.keys():
+            fig, ax = plt.subplots(1,1)
+            params = sorted(param_values[ch])
+            values = np.asarray([1000 * param_values[ch][par]["val"] for par in params], dtype=float).ravel()
+            errors = np.asarray([1000 * param_values[ch][par]["err"] for par in params], dtype=float).ravel()
+            ax.errorbar(params, values, yerr=errors, fmt="o")
+            ax.set_xlabel("DAC")
+            ax.set_ylabel("σ in x [µm]")
+            ax.set_title(f"Ch = {ch}")
+            fig.savefig(self.plotdir / f"dac_scan_ch_{ch}.png", dpi=150)
 
 
 if __name__ == "__main__":

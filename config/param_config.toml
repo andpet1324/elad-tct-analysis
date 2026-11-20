@@ -11,8 +11,12 @@ empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
 allowance = 5
 
 # Region of interest
-chmin = 106
-chmax = 109
+chmin = 86
+chmax = 90
+
+# Only use scan positions inside this range, leave out for all
+xmin = 8.0
+xmax = 8.2
 
 # |adc_clean| above this is a hit
 hit_threshold = 20
@@ -28,12 +32,6 @@ use_default_delay = true
 plot_run = 100
 
 chunk_size = 100
-
-# Only use scan positions inside this range, leave out for all
-# zmin = 31.0
-# zmax = 32.5
-xmin = 19
-xmax = 22
 
 pitch = 0.055 # mm
 

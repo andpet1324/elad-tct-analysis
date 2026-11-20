@@ -182,9 +182,11 @@ class BaseAnalysis(ABC):
 
     # ---------------- Extraction ----------------
     def extract(self, df: pd.DataFrame, z: float, x: float, param: Any) -> None:
-        """The numbers every analysis can use, for one cleaned run (one file, one z and x position).
-        param is the value of the header column named by the config key `param` for this run; it is
-        stored as a column with that name (e.g. "trigger")."""
+        """
+            The numbers every analysis can use, for one cleaned run (one file, one z and x position).
+            param is the value of the header column named by the config key `param` for this run; it is
+            stored as a column with that name (e.g. "trigger").
+        """
         voltage = df["voltage"].iloc[0]
         keys = {"z": z, "x": x, "voltage": voltage, self.cfg.param: param}
 
