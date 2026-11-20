@@ -12,7 +12,7 @@ import warnings
 from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, INTEGRALS
-from fits import edge, fit_peak, fit_beam, beam_width
+from fits import edge, curve_fit_xerr, fit_peak, fit_beam, beam_width
 
 
 class KnifeEdge(BaseAnalysis):

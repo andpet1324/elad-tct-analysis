@@ -65,8 +65,8 @@ class ParamScan(BaseAnalysis):
                             ax.plot(xf, np.sign(adc.sum()) * curve(xf), "--", color=cmap(ci))
                             if z not in sigmas:
                                 sigmas[ch_id].setdefault(z, {"val": [], "err": []})
-                            sigma = abs(popt[3])
-                            sigma_err = np.sqrt(pcov[3,3])
+                            sigma = sig
+                            sigma_err = sig_e
                             sigmas[ch_id][z]["val"].append(sigma)
                             sigmas[ch_id][z]["err"].append(sigma_err)
                             if ch_id not in param_values:
