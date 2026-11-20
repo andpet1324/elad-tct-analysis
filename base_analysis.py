@@ -181,16 +181,18 @@ class BaseAnalysis(ABC):
         """Make the plots from self.results"""
 
     # ---------------- Extraction ----------------
-    def extract(self, df: pd.DataFrame, z: float, x: float, param_name: str) -> None:
-        """The numbers every analysis can use, for one cleaned run (one file, one z and x position)"""
+    def extract(self, df: pd.DataFrame, z: float, x: float, param: Any) -> None:
+        """The numbers every analysis can use, for one cleaned run (one file, one z and x position).
+        param is the value of the header column named by the config key `param` for this run; it is
+        stored as a column with that name (e.g. "trigger")."""
         voltage = df["voltage"].iloc[0]
-        param = df[param_name].iloc[0]
+        keys = {"z": z, "x": x, "voltage": voltage, self.cfg.param: param}
 
         per_channel = df.groupby("channel")["adc_clean"].agg(value="mean", error="sem").reset_index()
-        self.add(ADC_CLEAN, per_channel, z=z, x=x, voltage=voltage, param=param)
+        self.add(ADC_CLEAN, per_channel, **keys)
 
         hits = self.is_hit(df).groupby(df["channel"]).sum().rename("value").reset_index()
-        self.add(CHANNEL_HITS, hits, z=z, x=x, voltage=voltage, param=param)
+        self.add(CHANNEL_HITS, hits, **keys)
 
         # Integral: sum over the channels in the window for each trigger ("run" in the file), then the
         # mean over the triggers. A plain array, since pandas gives NA and not NaN for a missing value.
@@ -199,7 +201,7 @@ class BaseAnalysis(ABC):
         n = per_trigger.size
         integral = {"value": per_trigger.mean() if n else np.nan,
                     "error": per_trigger.std(ddof=1) / np.sqrt(n) if n > 1 else np.nan}
-        self.add(INTEGRALS, integral, z=z, x=x, voltage=voltage, param=param)
+        self.add(INTEGRALS, integral, **keys)
 
     def process(self, df: pd.DataFrame, df_id: int, z: float, x: float) -> None:
         """Optional: add extra numbers of one cleaned run with self.add (list them in QUANTITIES)"""
@@ -393,7 +395,7 @@ class BaseAnalysis(ABC):
             if not self.select_run(df):
                 continue
             z, x = df["z"].iloc[0], df["x"].iloc[0]
-            param = df[self.cfg.param]
+            param = df[self.cfg.param].iloc[0]   # read before cleaning
             df = self.clean(df, df_id)
             if df is None:
                 self.on_empty(df_id, z, x)

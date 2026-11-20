@@ -33,7 +33,7 @@ class ParamScan(BaseAnalysis):
         # Average over the runs for each channel
         params = d.groupby(self.cfg.param)
         for par_id, par_df in params:
-            pardir = isdir(self.plotdir / par_id)
+            pardir = isdir(self.plotdir / str(par_id))
             focusdir = isdir(pardir / "focus")
             adcdir = isdir(pardir / "adc")
             d = par_df.astype({"x": float, "channel": float, "value": float, "error": float, "z": float, "voltage": float})
