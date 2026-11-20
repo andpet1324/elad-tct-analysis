@@ -6,6 +6,13 @@ def box_gaussian(x, A, x0, w, sigma, c):
     s = np.sqrt(2) * sigma
     return 0.5 * A * (erf((x - x0 + w/2) / s) - erf((x - x0 - w/2) / s)) + c
 
+def gaussian(x, A, x0, sigma, c):
+    return A * np.exp(-0.5 * ((x - x0) / sigma) ** 2) + c
+
+FIT_MODELS = ("box_gaussian", "gaussian")
+SIGMA_INDEX = {"box_gaussian": 3, "gaussian": 2}   # position of sigma in the parameters of each model
+
+
 def edge(x, A, x0, sigma, c):
     return 0.5 * A * (1 + erf((x - x0) / (np.sqrt(2) * sigma))) + c
 
@@ -29,6 +36,40 @@ def curve_fit_xerr(f, x, y, yerr, xerr, n_iter=2, **kwargs):
         sigma = np.sqrt(yerr**2 + (slope * xerr) ** 2)
         kwargs["p0"] = popt
     return popt, pcov
+
+
+def fit_peak(model, x, y, yerr, xerr, pitch, base=0.0, bounded=True, maxfev=10000):
+    """Fit a peak with "box_gaussian" (A, x0, w, sigma, c) or "gaussian" (A, x0, sigma, c).
+
+    Returns curve, popt, pcov, sigma, sigma_err. curve(xf) evaluates the fit, and sigma is the
+    Gaussian sigma of either model (for the box-gaussian the width w is not included).
+    base is the assumed baseline for the start values. Raises like curve_fit if the fit fails.
+    """
+    if model not in FIT_MODELS:
+        raise ValueError(f"Unknown fit_model {model!r}, choose from {FIT_MODELS}")
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    argmax = np.argmax(y)
+    peak = y[argmax]
+    above = x[y > base + (peak - base) / 2]
+    w = above.max() - above.min() if above.size > 1 else pitch / 2
+    step = np.diff(x).min() if x.size > 1 else pitch / 10
+    if model == "box_gaussian":
+        f = box_gaussian
+        p0 = [peak - base, x[argmax], w, max(w / 10, step), base]
+        lo = [0, x.min(), 0, 1e-4, -np.inf]
+        hi = [np.inf, x.max(), np.ptp(x), np.ptp(x), np.inf]
+    else:
+        f = gaussian
+        p0 = [peak - base, x[argmax], max(w / 2.355, step), base]   # w is about the FWHM
+        lo = [0, x.min(), 1e-4, -np.inf]
+        hi = [np.inf, x.max(), np.ptp(x), np.inf]
+    kwargs = dict(p0=p0, maxfev=maxfev)
+    if bounded:
+        kwargs["bounds"] = (lo, hi)
+    popt, pcov = curve_fit_xerr(f, x, y, yerr, xerr, **kwargs)
+    i = SIGMA_INDEX[model]
+    return (lambda xf: f(xf, *popt)), popt, pcov, abs(popt[i]), np.sqrt(pcov[i, i])
 
 
 def beam_width(z, w0, z0, zr):

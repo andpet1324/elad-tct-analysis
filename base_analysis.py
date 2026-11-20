@@ -123,13 +123,14 @@ class BaseAnalysis(ABC):
         "style": "",        # path to a matplotlib style file, empty for the default
         "xerr": 0.00125,    # error on the x stage position [mm], shown as error bars in the plots
         "zerr": 0.00125,    # error on the z stage position [mm]
+        "fit_model": "box_gaussian",   # peak shape fitted in x: "box_gaussian" or "gaussian"
         "param": "trigger"        # arbitrary param to scan in param_scan.py
     }
 
     # Keys that only plot() or the data reading uses. A change recomputes nothing.
     # Every other key changes the results, so a change runs the analysis again.
     PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size", "xmin", "xmax",
-                                  "eta_neighbours", "xerr", "zerr")
+                                  "eta_neighbours", "xerr", "zerr", "fit_model")
 
     # Names of the extra quantities your process() stores, e.g. QUANTITIES = (FIT_SIGMA,).
     # The common ones (COMMON) are always there.

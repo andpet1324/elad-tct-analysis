@@ -13,7 +13,7 @@ import warnings
 from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, CHANNEL_HITS
-from fits import box_gaussian, curve_fit_xerr
+from fits import fit_peak
 from plot_helpers import clean_adc, plot_adc
 
 
@@ -61,27 +61,24 @@ class XScan(BaseAnalysis):
         # This is a rough estimation. The fits give better positions
         ch_to_x = {ch: hits.index[np.argmax(hits[ch].to_numpy())] for ch in active}
         for ch in active:
-            # Fit a box-gaussian and find the mean value. If the fit don't
+            # Fit a box-gaussian or gaussian (cfg.fit_model) and find the mean value. If the fit don't
             # meet conditions, move to next channel.
             s = hits[ch].sort_index()
             x = s.index.to_numpy(dtype=float)
             y = s.to_numpy(dtype=float)
-            above_x = x[y > y.max() / 2]
-            w0 = above_x.max() - above_x.min() if above_x.size > 1 else self.cfg.pitch / 2
-            x0 = x[np.argmax(y)]
-            p0 = [y.max(), x0, w0, max(w0 / 10, np.diff(x).min()), y.min()]
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", RuntimeWarning)
                     warnings.simplefilter("error", OptimizeWarning)
                     # Counting error sqrt(N), at least 1 so empty positions do not get zero error
-                    popt, pcov = curve_fit_xerr(box_gaussian, x, y, np.sqrt(np.maximum(y, 1)),
-                                                self.cfg.xerr, p0=p0)
+                    curve, popt, pcov, _, _ = fit_peak(
+                        self.cfg.fit_model, x, y, np.sqrt(np.maximum(y, 1)), self.cfg.xerr,
+                        self.cfg.pitch, base=y.min(), bounded=False)
                 fig, ax = plt.subplots(1, 1)
                 xr = np.linspace(x.min(), x.max(), 1000)
                 ax.plot(x, y)
-                ax.plot(xr, box_gaussian(xr, *popt))
-                fig.savefig(fitdir / f"channel_{ch}_box_gaussian_fit.png", dpi=150)
+                ax.plot(xr, curve(xr))
+                fig.savefig(fitdir / f"channel_{ch}_{self.cfg.fit_model}_fit.png", dpi=150)
                 plt.close(fig)
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit failed with {err}")

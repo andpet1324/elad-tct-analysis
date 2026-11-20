@@ -1,5 +1,5 @@
 """
-Bias scan: width of the strip response in x (box-gaussian fit) against z for each bias voltage,
+Bias scan: width of the strip response in x (box-gaussian or gaussian fit, config fit_model) against z for each bias voltage,
 the focus (Gaussian beam fit in z: width, focus position, Rayleigh length) and its change with the voltage.
 
     python3 tct.py bias-scan data/*.csv -ped pedestals.csv \
@@ -14,7 +14,7 @@ import warnings
 from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN
-from fits import box_gaussian, curve_fit_xerr, fit_beam, beam_width
+from fits import fit_peak, fit_beam, beam_width
 
 
 class BiasScan(BaseAnalysis):
@@ -56,26 +56,17 @@ class BiasScan(BaseAnalysis):
                     ax_adc.errorbar(x, adc, yerr=err, xerr=self.cfg.xerr, fmt="o", ms=3, color=cmap(ci), label=f"z = {z:.2f} mm")
                     abs_adc = np.abs(adc)
                     # Fit signal and get the stdev
-                    argmax = np.argmax(abs_adc)   # SIGNAL IS ABS SO MAX
-                    peak = abs_adc[argmax]
-                    base = 0   # Assume 0 baseline
-                    above = x[abs_adc > base + peak / 2]
-                    w = above.max() - above.min() if above.size > 1 else self.cfg.pitch / 2
-                    p0 = [peak - base, x[argmax], w, max(w / 10, np.diff(x).min()), base]
-                    lo = [0, x.min(), 0, 1e-4, -np.inf]
-                    hi = [np.inf, x.max(), np.ptp(x), np.ptp(x), np.inf]
                     try:
                         with warnings.catch_warnings():
                             warnings.simplefilter("error", RuntimeWarning)
                             warnings.simplefilter("error", OptimizeWarning)
-                            popt, pcov = curve_fit_xerr(
-                                box_gaussian, x, abs_adc, np.abs(err), self.cfg.xerr,
-                                p0=p0, bounds=(lo, hi), maxfev=10000)
+                            curve, popt, pcov, sig, sig_e = fit_peak(
+                                self.cfg.fit_model, x, abs_adc, np.abs(err), self.cfg.xerr, self.cfg.pitch)
                             xf = np.linspace(x.min(), x.max(), 500)
-                            ax_adc.plot(xf, np.sign(adc.sum()) * box_gaussian(xf, *popt), "--", color=cmap(ci))
+                            ax_adc.plot(xf, np.sign(adc.sum()) * curve(xf), "--", color=cmap(ci))
                             zs[ch_id].append(z)
-                            sigmas[ch_id]["val"].append(abs(popt[3]))
-                            sigmas[ch_id]["err"].append(np.sqrt(pcov[3,3]))
+                            sigmas[ch_id]["val"].append(sig)
+                            sigmas[ch_id]["err"].append(sig_e)
                     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                         print(f"Fit failed with {err}")
                         continue
