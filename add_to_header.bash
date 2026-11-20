@@ -1,5 +1,5 @@
-DIR="$HOME/mnt/remote_data/motor_scan/dac_scan/nd45/dac10/stepsize4um"
-VAL='10'
+DIR="$HOME/mnt/remote_data/motor_scan/dac_scan/nd45/dac300/stepsize4um"
+VAL='300'
 
 for f in "$DIR"/*.csv; do
   if head -n1 "$f" | grep -q '"DAC"'; then

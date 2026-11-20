@@ -110,11 +110,7 @@ class FocusScan(BaseAnalysis):
             ax_zs.set_ylim(-10, 80)
             fig_zs.savefig(focusdir / f"focus_scan_ch_{ch}.png", dpi=150)
             plt.close(fig_zs)
-
-
-
-        
-
+            
 
 if __name__ == "__main__":
     FocusScan().run()
