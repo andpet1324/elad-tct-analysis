@@ -80,7 +80,7 @@ class ParamScan(BaseAnalysis):
                         continue
                 ax.legend(fontsize="x-small", ncols=2, framealpha=0.6)
                 ax.xaxis.set_minor_locator(tck.AutoMinorLocator())
-                ax.set_title(f"Ch {ch_id}, {voltage:g} V")
+                ax.set_title(f"Ch {ch_id}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
                 ax.set_xlabel("Position in x [mm]")
                 ax.set_ylabel("Mean ADC")
                 fig.savefig(adcdir / f"adc_ch_{ch_id}.png", dpi=150)
@@ -107,7 +107,7 @@ class ParamScan(BaseAnalysis):
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                     print(f"Fit of sigmas failed with {err}")
 
-                ax_zs.set_title(f"Ch {ch}, {voltage:g} V")
+                ax_zs.set_title(f"Ch {ch}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
                 ax_zs.set_xlabel("Position in z [mm]")
                 ax_zs.set_ylabel("σ in x [µm]")
                 ax_zs.set_ylim(-10, 80)
@@ -122,7 +122,7 @@ class ParamScan(BaseAnalysis):
             ax.errorbar(params, values, yerr=errors, fmt="o")
             ax.set_xlabel("DAC")
             ax.set_ylabel("σ in x [µm]")
-            ax.set_title(f"Ch = {ch}")
+            ax.set_title(f"Ch = {ch}, {self.cfg.fit_model.replace("_", "-")}")
             fig.savefig(self.plotdir / f"dac_scan_ch_{ch}.png", dpi=150)
 
 

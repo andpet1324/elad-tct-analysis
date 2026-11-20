@@ -67,7 +67,7 @@ class FocusScan(BaseAnalysis):
                     continue
             ax.legend(fontsize="x-small", ncols=2, framealpha=0.6)
             ax.xaxis.set_minor_locator(tck.AutoMinorLocator())
-            ax.set_title(f"Ch {ch_id}, {voltage:g} V")
+            ax.set_title(f"Ch {ch_id}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
             ax.set_xlabel("Position in x [mm]")
             ax.set_ylabel("Mean ADC")
             fig.savefig(adcdir / f"adc_ch_{ch_id}.png", dpi=150)
@@ -95,7 +95,7 @@ class FocusScan(BaseAnalysis):
                 print(f"Fit of sigmas failed with {err}")
 
             ax_zs.legend(fontsize="small", framealpha=1)
-            ax_zs.set_title(f"Ch {ch}, {voltage:g} V")
+            ax_zs.set_title(f"Ch {ch}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
             ax_zs.set_xlabel("Position in z [mm]")
             ax_zs.set_ylabel("σ in x [µm]")
             ax_zs.set_ylim(-10, 80)

@@ -78,6 +78,7 @@ class XScan(BaseAnalysis):
                 xr = np.linspace(x.min(), x.max(), 1000)
                 ax.plot(x, y)
                 ax.plot(xr, curve(xr))
+                ax.set_title(f"Ch {ch}, {self.cfg.fit_model.replace("_", "-")} fit")
                 fig.savefig(fitdir / f"channel_{ch}_{self.cfg.fit_model}_fit.png", dpi=150)
                 plt.close(fig)
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
