@@ -16,7 +16,7 @@ chmax = 90
 
 # Only use scan positions inside this range, leave out for all
 xmin = 8.0
-xmax = 8.2
+xmax = 8.15
 
 # |adc_clean| above this is a hit
 hit_threshold = 20
@@ -47,4 +47,4 @@ xerr = 0.00125 # 1.25 micron
 zerr = 0.00125 # 1.25 micron
 
 # Peak shape fitted in x for the sigma: "box_gaussian" or "gaussian"
-fit_model = "box_gaussian"
+fit_model = "gaussian"

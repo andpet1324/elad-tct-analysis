@@ -21,7 +21,7 @@ HERE = pathlib.Path(__file__).parent
 # name on the command line: (file, class)
 ANALYSES = {
     "x-scan": ("x_scan.py", "XScan"),
-    "focus-scan": ("focus_scan.py", "Focus"),
+    "focus-scan": ("focus_scan.py", "FocusScan"),
     "knife-edge-scan": ("knife_edge_scan.py", "KnifeEdge"),
     "bias-scan": ("bias_scan.py", "BiasScan"),
     "param-scan": ("param_scan.py", "ParamScan")

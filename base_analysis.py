@@ -124,7 +124,7 @@ class BaseAnalysis(ABC):
         "xerr": 0.00125,    # error on the x stage position [mm], shown as error bars in the plots
         "zerr": 0.00125,    # error on the z stage position [mm]
         "fit_model": "box_gaussian",   # peak shape fitted in x: "box_gaussian" or "gaussian"
-        "param": "trigger"        # arbitrary param to scan in param_scan.py
+        "param": "current"        # arbitrary param to scan in param_scan.py
     }
 
     # Keys that only plot() or the data reading uses. A change recomputes nothing.

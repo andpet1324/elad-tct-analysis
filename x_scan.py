@@ -78,6 +78,7 @@ class XScan(BaseAnalysis):
                 xr = np.linspace(x.min(), x.max(), 1000)
                 ax.plot(x, y)
                 ax.plot(xr, curve(xr))
+                ax.set_xlim(popt[1] - 5 * popt[2], popt[1] + 5 * popt[2])
                 ax.set_title(f"Ch {ch}, {self.cfg.fit_model.replace("_", "-")} fit")
                 fig.savefig(fitdir / f"channel_{ch}_{self.cfg.fit_model}_fit.png", dpi=150)
                 plt.close(fig)
@@ -98,7 +99,9 @@ class XScan(BaseAnalysis):
             popt, pcov = np.polyfit(channels, x_mean, 1, 
                                     w=1/xerr, cov=True)
             xr = np.linspace(min(channels), max(channels), 1000)
-            ax_ch.plot(xr, np.polyval(popt, xr))
+            phi = np.rad2deg(np.arccos(popt[0]/self.cfg.pitch))
+            ax_ch.plot(xr, np.polyval(popt, xr),
+                       label=rf"$\phi$ = arccos(slope/pitch) = arccos({popt[0]:.5f}/{self.cfg.pitch}) = {phi:.3f} degrees")
             for ch in ch_to_x.keys():
                 ch_to_x[ch] = np.polyval(popt, ch)
         except Exception as err:
@@ -107,6 +110,7 @@ class XScan(BaseAnalysis):
         ax_ch.set_xlabel("Channel")
         ax_ch.set_ylabel(rf"x$_{{mean}}$ [mm]")
         ax_ch.set_title(title)
+        ax_ch.legend()
         fig_ch.savefig(fitdir / "ch_to_x.png", dpi=150)
 
         # Save the mapping in the config, other scans can use it as cfg.ch_to_x

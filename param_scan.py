@@ -29,11 +29,13 @@ class ParamScan(BaseAnalysis):
         d = self.get(ADC_CLEAN)
         active = [ch for ch in range(self.cfg.chmin, self.cfg.chmax+1)]
         ch_to_x = self.cfg.ch_to_x
+        # Cut on range
+        xmask = (d["x"] > self.cfg.xmin) & (d["x"] < self.cfg.xmax)
+        d = d[xmask]
         # Average over the runs for each channel
         params = d.groupby(self.cfg.param)
         param_values = {}
         for par_id, par_df in params:
-            print(par_id)
             pardir = isdir(self.plotdir / str(par_id))
             focusdir = isdir(pardir / "focus")
             adcdir = isdir(pardir / "adc")
@@ -122,7 +124,7 @@ class ParamScan(BaseAnalysis):
             ax.errorbar(params, values, yerr=errors, fmt="o")
             ax.set_xlabel("DAC")
             ax.set_ylabel("σ in x [µm]")
-            ax.set_title(f"Ch = {ch}, {self.cfg.fit_model.replace("_", "-")}")
+            ax.set_title(f"Ch = {ch}")
             fig.savefig(self.plotdir / f"dac_scan_ch_{ch}.png", dpi=150)
 
 
