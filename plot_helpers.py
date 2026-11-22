@@ -62,7 +62,8 @@ def plot_adc(adc_x, err_x, active, visible, title, path, xmin, xmax, ylabel="ADC
     for i, ch in enumerate(active):
         colors[ch] = cmap(i)
         y, err = adc_x[ch], err_x[ch]
-        ax.errorbar(adc_x.index, y, yerr=err, xerr=xerr, color=colors[ch])
+        xe = xerr[ch] if isinstance(xerr, (dict, pd.Series)) else xerr   # per-channel x error allowed
+        ax.errorbar(adc_x.index, y, yerr=err, xerr=xe, color=colors[ch])
         # ax.plot(adc_x.index, y, "-o", ms=2, color=colors[ch])
         # ax.fill_between(adc_x.index, y - err, y + err, color=colors[ch], alpha=1, lw=0)
     ax.set_xlim(xmin, xmax)

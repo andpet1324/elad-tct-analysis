@@ -18,9 +18,9 @@ from plot_helpers import clean_adc, plot_adc
 
 
 class XScan(BaseAnalysis):
-    DEFAULTS = {**BaseAnalysis.DEFAULTS, "update_config": False, "chfocus": 96, "angle_corr": False,}
+    DEFAULTS = {**BaseAnalysis.DEFAULTS, "update_config": False, "chfocus": 96}
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
-    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x","update_config","chfocus", "angle_corr",)
+    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x","update_config","chfocus",)
 
     # Contains the data per position basically
     def plot(self) -> None:
@@ -28,6 +28,7 @@ class XScan(BaseAnalysis):
         fitdir = isdir(self.plotdir / "fits")
         hitsdir = isdir(self.plotdir / "hits")
         adcdir = isdir(self.plotdir / "adc")
+        adccorr = isdir(adcdir / "corrected")
 
         """" --------------- HITS PLOTS ---------------"""
         # We run hits first to get ch_to_x map
@@ -161,86 +162,94 @@ class XScan(BaseAnalysis):
         err_x = d.pivot_table(index="x", columns="channel", values="error", aggfunc="mean")
         err_x = err_x.reindex(index=adc_x.index, columns=adc_x.columns)
 
-        # Angle correction
-        if self.cfg.angle_corr and residuals is not None:
+        # Angle correction: shift each channel by its residual (mm) w.r.t. the unrotated model
+        adc_corr = err_corr = xerr_corr = None
+        if residuals is not None:
             ch_vals = adc_x.columns.to_numpy(dtype=float)
             x_vals = adc_x.index.to_numpy(dtype=float)
-
-            # residual (mm) at each channel's position, interpolated from the fit grid xr
             res_ch = np.interp(ch_vals, xr, residuals)
-            # position uncertainty per channel; ADC errors are left unchanged
             res_err_ch = np.interp(ch_vals, xr, residuals_errors)
 
-            corrected = adc_x.copy()
+            adc_corr = adc_x.copy()
             for j, ch in enumerate(adc_x.columns):
-                shift = res_ch[j]
                 # value at ideal grid point g is the measured value at g - shift
-                corrected[ch] = np.interp(x_vals - shift, x_vals, adc_x[ch].to_numpy(),
-                                        left=np.nan, right=np.nan)
-            adc_x = corrected
-            # err_x stays as-is; keep res_err_ch for the position uncertainty in later plots
+                adc_corr[ch] = np.interp(x_vals - res_ch[j], x_vals, adc_x[ch].to_numpy(),
+                                         left=np.nan, right=np.nan)
+            err_corr = err_x.copy()
+            # x error per channel: step error and position (slope) uncertainty in quadrature
+            xerr_corr = {ch: float(np.hypot(self.cfg.xerr, res_err_ch[j]))
+                         for j, ch in enumerate(adc_x.columns)}
 
-        # ADC vs pos and channel
-        plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png",
-                 self.cfg.xmin, self.cfg.xmax, xerr=self.cfg.xerr)
+        def adc_plots(adc_x, err_x, outdir, xerr):
+            plot_adc(adc_x, err_x, active, visible, title, outdir / "adc_vs_channel.png",
+                     self.cfg.xmin, self.cfg.xmax, xerr=xerr)
 
-        adc_clean, err_clean = clean_adc(adc_x, err_x, active)
+            adc_clean, err_clean = clean_adc(adc_x, err_x, active)
+            plot_adc(adc_clean, err_clean, active, visible, title, outdir / "adc_vs_channel_clean.png",
+                     self.cfg.xmin, self.cfg.xmax, xerr=xerr)
 
-        plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_clean.png",
-                 self.cfg.xmin, self.cfg.xmax, xerr=self.cfg.xerr)
+            # Charge fractions need the absolute values, not the per-channel normalized ones
+            charge, charge_err = adc_clean.abs(), err_clean.copy()
 
-        # Charge fractions need the absolute values, not the per-channel normalized ones
-        charge, charge_err = adc_clean.abs(), err_clean.copy()
+            # Normalizing
+            err_clean = err_clean.abs() / adc_clean.abs().max()
+            adc_clean = adc_clean.abs() / adc_clean.abs().max()
+            plot_adc(adc_clean, err_clean, active, visible, title, outdir / "adc_vs_channel_normalized.png",
+                     self.cfg.xmin, self.cfg.xmax, xerr=xerr)
 
-        # Normalizing
-        err_clean = err_clean.abs() / adc_clean.abs().max()
-        adc_clean = adc_clean.abs() / adc_clean.abs().max()
-        plot_adc(adc_clean, err_clean, active, visible, title, adcdir / "adc_vs_channel_normalized.png",
-                 self.cfg.xmin, self.cfg.xmax, xerr=self.cfg.xerr)
+            # Heatmap
+            fig, ax = plt.subplots(1, 1)
+            mesh = ax.pcolormesh(adc_clean.index, adc_clean.columns, adc_clean.T.to_numpy(), cmap='viridis', shading="nearest")
+            fig.colorbar(mesh, label="Normalized ADC")
+            ax.set_xlabel("Position in x [mm]")
+            ax.set_ylabel("Channel")
+            ax.set_ylim(active.min() - 3, active.max() + 3)   # skip the empty channels
+            ax.xaxis.set_minor_locator(tck.AutoMinorLocator())
+            ax.yaxis.set_minor_locator(tck.AutoMinorLocator())
+            ax.tick_params(which="both", width=1, direction="out")
+            ax.set_title(title)
+            ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
+            fig.savefig(outdir / "adc_map.png", dpi=150)
+            plt.close(fig)
 
-        # Heatmap
-        fig, ax = plt.subplots(1, 1)
-        mesh = ax.pcolormesh(adc_clean.index, adc_clean.columns, adc_clean.T.to_numpy(), cmap='viridis', shading="nearest")
-        fig.colorbar(mesh, label="Normalized ADC")
-        ax.set_xlabel("Position in x [mm]")
-        ax.set_ylabel("Channel")
-        ax.set_ylim(active.min() - 3, active.max() + 3)   # skip the empty channels
-        ax.xaxis.set_minor_locator(tck.AutoMinorLocator())
-        ax.yaxis.set_minor_locator(tck.AutoMinorLocator())
-        ax.tick_params(which="both", width=1, direction="out")   
-        ax.set_title(title)
-        ax.set_xlim(self.cfg.xmin, self.cfg.xmax)
-        fig.savefig(adcdir / "adc_map.png", dpi=150)
-        plt.close(fig)
+            return charge, charge_err
 
-        # Eta-function
-        frac = {}
-        err_frac = {}
-        for ch in active:
-            cols = [c for c in np.linspace(
-                ch-self.cfg.eta_neighbours, 
-                ch+self.cfg.eta_neighbours, 
-                num=(2 * self.cfg.eta_neighbours + 1))]
-            q = charge.reindex(columns=cols)
-            e = charge_err.reindex(columns=cols)
+        sets = [(adcdir, self.cfg.xerr, *adc_plots(adc_x, err_x, adcdir, self.cfg.xerr))]
+        if adc_corr is not None:
+            sets.append((adccorr, xerr_corr, *adc_plots(adc_corr, err_corr, adccorr, xerr_corr)))
+        else:
+            print("No angle correction available (ch_to_x fit failed)")
 
-            s = q.sum(axis=1, min_count=3)
-            f = q[ch] / s
-            near = (f.index.to_series() - ch_to_x[ch]).abs() < 1.5*self.cfg.pitch
-            f = f.where(near.to_numpy())
+        # Eta-function, for the uncorrected and the corrected data
+        title0 = title
+        for outdir, xerr, charge, charge_err in sets:
+            frac = {}
+            err_frac = {}
+            for ch in active:
+                cols = [c for c in np.linspace(
+                    ch-self.cfg.eta_neighbours, 
+                    ch+self.cfg.eta_neighbours, 
+                    num=(2 * self.cfg.eta_neighbours + 1))]
+                q = charge.reindex(columns=cols)
+                e = charge_err.reindex(columns=cols)
 
-            # Error on f = Q_c / (Q_l + Q_c + Q_r), uncorrelated per-channel errors
-            s_c2 = e[ch] ** 2
-            s_side2 = e[ch - 1] ** 2 + e[ch + 1] ** 2
-            var = ((1 - f) ** 2 * s_c2 + f ** 2 * s_side2) / s ** 2
+                s = q.sum(axis=1, min_count=3)
+                f = q[ch] / s
+                near = (f.index.to_series() - ch_to_x[ch]).abs() < 1.5*self.cfg.pitch
+                f = f.where(near.to_numpy())
 
-            frac[ch] = f
-            err_frac[ch] = np.sqrt(var)
-        frac = pd.DataFrame(frac)
-        err_frac = pd.DataFrame(err_frac)
-        title = title + rf", $\eta$ neighbours = $\pm${self.cfg.eta_neighbours}"
-        plot_adc(100 * frac, 100 * err_frac, active, visible, title, adcdir / "eta-function.png",
-                      self.cfg.xmin, self.cfg.xmax, ylabel="Charge fraction [%]", xerr=self.cfg.xerr)
+                # Error on f = Q_c / (Q_l + Q_c + Q_r), uncorrelated per-channel errors
+                s_c2 = e[ch] ** 2
+                s_side2 = e[ch - 1] ** 2 + e[ch + 1] ** 2
+                var = ((1 - f) ** 2 * s_c2 + f ** 2 * s_side2) / s ** 2
+
+                frac[ch] = f
+                err_frac[ch] = np.sqrt(var)
+            frac = pd.DataFrame(frac)
+            err_frac = pd.DataFrame(err_frac)
+            title = title0 + rf", $\eta$ neighbours = $\pm${self.cfg.eta_neighbours}"
+            plot_adc(100 * frac, 100 * err_frac, active, visible, title, outdir / "eta-function.png",
+                          self.cfg.xmin, self.cfg.xmax, ylabel="Charge fraction [%]", xerr=xerr)
 
 
 

@@ -15,7 +15,6 @@ chmax = 106
 chfocus = 96
 
 # Angle correction
-angle_corr = false
 
 # |adc_clean| above this is a hit
 hit_threshold = 20
