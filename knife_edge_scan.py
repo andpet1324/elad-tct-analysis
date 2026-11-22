@@ -85,8 +85,8 @@ class KnifeEdge(BaseAnalysis):
                 print(f"z = {z}, fit of edge failed with {err}")
             ax.set_xlabel("Position in x [mm]")
             ax.set_ylabel("Integral over channels")
-            # ax.set_title(f"Integral between channels {self.cfg.chmin} - {self.cfg.chmax}")
-            ax.set_title(f"Integral on channel 86")
+            ax.set_title(f"Integral over Ch {self.cfg.chmin}"
+                         + (f"-{self.cfg.chmax}" if self.cfg.chmax != self.cfg.chmin else ""))
             ax.legend(fontsize="small", framealpha=1)
             fig.savefig(fitdir / f"knife_edge_scan_z_{z}.png", dpi=150)
             plt.close(fig)
