@@ -11,6 +11,12 @@ allowance = 5
 chmin = 86
 chmax = 106
 
+# Channel used to find the focus
+chfocus = 96
+
+# Angle correction
+angle_corr = false
+
 # |adc_clean| above this is a hit
 hit_threshold = 20
 

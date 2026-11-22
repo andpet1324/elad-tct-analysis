@@ -18,9 +18,9 @@ from plot_helpers import clean_adc, plot_adc
 
 
 class XScan(BaseAnalysis):
-    DEFAULTS = {**BaseAnalysis.DEFAULTS, "update_config": False,}
+    DEFAULTS = {**BaseAnalysis.DEFAULTS, "update_config": False, "chfocus": 96, "angle_corr": False,}
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
-    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x","update_config",)
+    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x","update_config","chfocus", "angle_corr",)
 
     # Contains the data per position basically
     def plot(self) -> None:
@@ -41,6 +41,8 @@ class XScan(BaseAnalysis):
         active = hits.columns[hits.sum() > 0.05 * hits.sum().max()]   # channels with real hits
         # z and voltage of the scan for the titles
         title = f"z = {', '.join(f'{v:.2f}' for v in sorted(zs))} mm, V = {', '.join(f'{v:g}' for v in sorted(volts))} V"
+        residuals = None
+        residuals_errors = None
 
         # Heatmap channels vs x pos
         fig, ax = plt.subplots(1, 1)
@@ -90,27 +92,39 @@ class XScan(BaseAnalysis):
             if (abs(popt[0] - y.max()) < y.max()/10):
                 ch_to_x[ch] = popt[1]
 
-        fig_ch, ax_ch = plt.subplots(1,1)
+        fig_ch, (ax_ch0, ax_ch1) = plt.subplots(2,1, sharex=True, height_ratios=[3,1])
         channels, x_mean = zip(*ch_to_x.items())
-        ax_ch.errorbar(channels, x_mean, yerr=self.cfg.xerr, fmt='o')
+        ax_ch0.errorbar(channels, x_mean, yerr=self.cfg.xerr, fmt='o')
         try:
             xerr = np.broadcast_to(np.asarray(self.cfg.xerr, dtype=float), 
                                    np.shape(x_mean))
             popt, pcov = np.polyfit(channels, x_mean, 1, 
                                     w=1/xerr, cov=True)
-            xr = np.linspace(min(channels), max(channels), 1000)
+            xr = np.linspace(min(channels), max(channels), 100)
             phi = np.rad2deg(np.arccos(popt[0]/self.cfg.pitch))
-            ax_ch.plot(xr, np.polyval(popt, xr),
+            true = np.polyval(popt, xr)
+            ax_ch0.plot(xr, true,
                        label=rf"$\phi$ = arccos(slope/pitch) = arccos({popt[0]:.5f}/{self.cfg.pitch}) = {phi:.3f} degrees")
+            # Get the model for the non-rotated sensor
+            model_intercept = np.polyval(popt, self.cfg.chfocus) - self.cfg.pitch * self.cfg.chfocus
+            model = np.polyval([self.cfg.pitch, model_intercept], xr)
+            ax_ch0.plot(xr, model, color='black',
+                       label=f"model")
+            residuals = model - true
+            # model is independant on the intercept
+            # error is only from slope
+            residuals_errors = np.abs(self.cfg.chfocus - xr) * np.sqrt(pcov[0,0])
+            ax_ch1.errorbar(xr, residuals, yerr=residuals_errors, fmt="o", ms=5)
             for ch in ch_to_x.keys():
                 ch_to_x[ch] = np.polyval(popt, ch)
         except Exception as err:
             print(f"fit failed with {err}!")
 
-        ax_ch.set_xlabel("Channel")
-        ax_ch.set_ylabel(rf"x$_{{mean}}$ [mm]")
-        ax_ch.set_title(title)
-        ax_ch.legend()
+        ax_ch1.set_xlabel("Channel")
+        ax_ch1.set_ylabel("Residuals")
+        ax_ch0.set_ylabel(rf"x$_{{mean}}$ [mm]")
+        ax_ch0.set_title(title)
+        ax_ch0.legend()
         fig_ch.savefig(fitdir / "ch_to_x.png", dpi=150)
 
         # Save the mapping in the config, other scans can use it as cfg.ch_to_x
@@ -146,6 +160,25 @@ class XScan(BaseAnalysis):
         adc_x = d.pivot_table(index="x", columns="channel", values="value", aggfunc="mean")
         err_x = d.pivot_table(index="x", columns="channel", values="error", aggfunc="mean")
         err_x = err_x.reindex(index=adc_x.index, columns=adc_x.columns)
+
+        # Angle correction
+        if self.cfg.angle_corr and residuals is not None:
+            ch_vals = adc_x.columns.to_numpy(dtype=float)
+            x_vals = adc_x.index.to_numpy(dtype=float)
+
+            # residual (mm) at each channel's position, interpolated from the fit grid xr
+            res_ch = np.interp(ch_vals, xr, residuals)
+            # position uncertainty per channel; ADC errors are left unchanged
+            res_err_ch = np.interp(ch_vals, xr, residuals_errors)
+
+            corrected = adc_x.copy()
+            for j, ch in enumerate(adc_x.columns):
+                shift = res_ch[j]
+                # value at ideal grid point g is the measured value at g - shift
+                corrected[ch] = np.interp(x_vals - shift, x_vals, adc_x[ch].to_numpy(),
+                                        left=np.nan, right=np.nan)
+            adc_x = corrected
+            # err_x stays as-is; keep res_err_ch for the position uncertainty in later plots
 
         # ADC vs pos and channel
         plot_adc(adc_x, err_x, active, visible, title, adcdir / "adc_vs_channel.png",
