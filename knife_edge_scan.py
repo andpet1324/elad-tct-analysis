@@ -87,7 +87,7 @@ class KnifeEdge(BaseAnalysis):
             ax.set_ylabel("Integral over channels")
             # ax.set_title(f"Integral between channels {self.cfg.chmin} - {self.cfg.chmax}")
             ax.set_title(f"Integral on channel 86")
-            ax.legend()
+            ax.legend(fontsize="small", framealpha=1)
             fig.savefig(fitdir / f"knife_edge_scan_z_{z}.png", dpi=150)
             plt.close(fig)
 
@@ -116,7 +116,7 @@ class KnifeEdge(BaseAnalysis):
             print(f"Fit of sigmas failed with {err}")
         ax_zs.legend(fontsize="small", framealpha=1)
         ax_zs.set_xlabel("Position in z [mm]")
-        ax_zs.set_ylabel(rf"Edge fit $\sigma$ [µm]")
+        ax_zs.set_ylabel("σ in x [µm]")
         ax_zs.set_title("Knife-edge scan")
         ax_zs.set_ylim(-10, 70)
         fig.savefig(self.plotdir / "sigma_vs_z.png", dpi=150)
@@ -195,7 +195,7 @@ class KnifeEdge(BaseAnalysis):
                     ax_zs.plot(xz, 1000 * beam_width(xz, *popt_b), color=color,
                             label=rf"Beam fit: $\sigma_0 = {1000 * w0:.2f} \pm {1000 * e_w0:.2f}$ µm, $z_0 = {z0:.3f}$ mm, $z_R = {zr:.2f} \pm {e_zr:.2f}$ mm")
                     ax_comp.plot(xz, 1000 * beam_width(xz, *popt_b), color=color,
-                            label=rf"{self.cfg.fit_model}, ch {ch}: $\sigma_0 = {1000 * w0:.2f}$ µm, $z_R = {zr:.2f}$ mm")
+                            label=rf"{self.cfg.fit_model.replace('_', '-')}, Ch {ch}: $\sigma_0 = {1000 * w0:.2f}$ µm, $z_R = {zr:.2f}$ mm")
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of sigmas failed with {err}")
 

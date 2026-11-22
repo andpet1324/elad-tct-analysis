@@ -52,10 +52,10 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path, TIME_THRESHOLD: float) ->
     xl = np.linspace(popt[1] - 2 * popt[2], popt[1] + 2 * popt[2], 1000)
     ax.plot(
         xl, -gaussian(xl, *popt), 
-        label=f"Fit: $\mu$ = {popt[1]:.2f} ns, $\sigma$ = {popt[2]:.2f} ns")
+        label=rf"Fit: $\mu$ = {popt[1]:.2f} ns, $\sigma$ = {popt[2]:.2f} ns")
     ax.set_xlabel("Time [ns]")
-    ax.set_ylabel("# Hits")
-    ax.legend()
-    ax.set_title(f"{TIME_THRESHOLD} ADC hit threshold, {df["voltage"].iloc[0]} V")
+    ax.set_ylabel("Hits")
+    ax.legend(fontsize="small", framealpha=1)
+    ax.set_title(f"{TIME_THRESHOLD} ADC hit threshold, {df["voltage"].iloc[0]:g} V")
     fig.savefig(plotdir / f"signal_in_time.png", dpi=150)
     return (popt[1], popt[2])

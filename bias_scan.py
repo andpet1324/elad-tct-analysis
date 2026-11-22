@@ -99,7 +99,7 @@ class BiasScan(BaseAnalysis):
                         xz = np.linspace(min(ch_zs), max(ch_zs), 100)
                         focuses.setdefault(ch, {})[voltage] = (z0, e_z0, w0, e_w0)
                         ax_zs.plot(xz, 1000 * beam_width(xz, *popt), color=color,
-                                   label=rf"$\sigma_0 = {1000 * w0:.2f} \pm {1000 * e_w0:.2f}$ µm, $z_0 = {z0:.3f}$ mm, $z_R = {zr:.2f} \pm {e_zr:.2f}$ mm")
+                                   label=rf"Beam fit: $\sigma_0 = {1000 * w0:.2f} \pm {1000 * e_w0:.2f}$ µm, $z_0 = {z0:.3f}$ mm, $z_R = {zr:.2f} \pm {e_zr:.2f}$ mm")
                         ax_zs.legend(fontsize="small", framealpha=1)
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                     print(f"Fit of sigmas failed with {err}")

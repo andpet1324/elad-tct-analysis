@@ -124,7 +124,7 @@ class ParamScan(BaseAnalysis):
             ax.errorbar(params, values, yerr=errors, fmt="o")
             ax.set_xlabel("DAC")
             ax.set_ylabel("σ in x [µm]")
-            ax.set_title(f"Ch = {ch}, {self.cfg.fit_model.replace('_', '-')}")
+            ax.set_title(f"Ch {ch}, {self.cfg.fit_model.replace('_', '-')}")
             fig.savefig(self.plotdir / f"dac_scan_ch_{ch}.png", dpi=150)
 
 

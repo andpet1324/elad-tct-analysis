@@ -129,8 +129,8 @@ class FocusScan(BaseAnalysis):
         phi = np.rad2deg(np.arcsin(coefs[0]))
         ax.plot(chs, np.polyval(coefs, chs), label=rf"$\phi$ = cos$^{{-1}}$(pitch/slope) = cos$^{{-1}}$({self.cfg.pitch}/{coefs[0]:.2f}) = {phi:.2f} degrees")
         ax.set_xlabel("Channel")
-        ax.set_ylabel(rf"$z_0$ [mm]")
-        ax.legend()
+        ax.set_ylabel(r"$z_{\mathrm{0}}$ [mm]")
+        ax.legend(fontsize="small", framealpha=1)
         fig.savefig(self.plotdir / f"z_0.png", dpi=150)
         plt.close()
 

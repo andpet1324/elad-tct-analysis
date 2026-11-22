@@ -124,11 +124,12 @@ class XScan(BaseAnalysis):
             print(f"fit failed with {err}!")
 
         ax_ch1.set_xlabel("Channel")
-        ax_ch1.set_ylabel("Residuals")
-        ax_ch0.set_ylabel(rf"x$_{{mean}}$ [mm]")
+        ax_ch1.set_ylabel("Residual [mm]")
+        ax_ch0.set_ylabel(r"$x_{\mathrm{mean}}$ [mm]")
         ax_ch0.set_title(title)
-        ax_ch0.legend()
+        ax_ch0.legend(fontsize="small", framealpha=1)
         fig_ch.savefig(fitdir / "ch_to_x.png", dpi=150)
+        plt.close(fig_ch)
 
         # Save the mappings in the config, other scans can use them as cfg.ch_to_x and cfg.ch_to_x_corr
         if self.cfg.update_config:
