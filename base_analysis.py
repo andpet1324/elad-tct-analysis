@@ -106,6 +106,7 @@ class BaseAnalysis(ABC):
         "allowance": 5,
         "pitch": 0.055,
         "ch_to_x": {},          # channel -> x position [mm], saved by the x-scan with update_config()
+        "ch_to_x_corr": {},     # same for the angle-corrected (unrotated model) positions, saved by the x-scan
         "eta_neighbours": 3,
         "chmin": 0,
         "chmax": 256,

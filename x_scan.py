@@ -20,7 +20,7 @@ from plot_helpers import clean_adc, plot_adc
 class XScan(BaseAnalysis):
     DEFAULTS = {**BaseAnalysis.DEFAULTS, "update_config": False, "chfocus": 96}
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
-    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x","update_config","chfocus",)
+    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x","ch_to_x_corr","update_config","chfocus",)
 
     # Contains the data per position basically
     def plot(self) -> None:
@@ -44,6 +44,7 @@ class XScan(BaseAnalysis):
         title = f"z = {', '.join(f'{v:.2f}' for v in sorted(zs))} mm, V = {', '.join(f'{v:g}' for v in sorted(volts))} V"
         residuals = None
         residuals_errors = None
+        model_x = None   # channel positions of the unrotated sensor
 
         # Heatmap channels vs x pos
         fig, ax = plt.subplots(1, 1)
@@ -109,6 +110,7 @@ class XScan(BaseAnalysis):
             # Get the model for the non-rotated sensor
             model_intercept = np.polyval(popt, self.cfg.chfocus) - self.cfg.pitch * self.cfg.chfocus
             model = np.polyval([self.cfg.pitch, model_intercept], xr)
+            model_x = {ch: self.cfg.pitch * ch + model_intercept for ch in ch_to_x}
             ax_ch0.plot(xr, model, color='black',
                        label=f"model")
             residuals = model - true
@@ -128,9 +130,9 @@ class XScan(BaseAnalysis):
         ax_ch0.legend()
         fig_ch.savefig(fitdir / "ch_to_x.png", dpi=150)
 
-        # Save the mapping in the config, other scans can use it as cfg.ch_to_x
+        # Save the mappings in the config, other scans can use them as cfg.ch_to_x and cfg.ch_to_x_corr
         if self.cfg.update_config:
-            self.update_config(ch_to_x=ch_to_x)
+            self.update_config(ch_to_x=ch_to_x, **({"ch_to_x_corr": model_x} if model_x else {}))
 
         fig, ax = plt.subplots(1, 1)
         for ch in active:
@@ -180,7 +182,7 @@ class XScan(BaseAnalysis):
             xerr_corr = {ch: float(np.hypot(self.cfg.xerr, res_err_ch[j]))
                          for j, ch in enumerate(adc_x.columns)}
 
-        def adc_plots(adc_x, err_x, outdir, xerr):
+        def adc_plots(adc_x, err_x, outdir, xerr, visible):
             plot_adc(adc_x, err_x, active, visible, title, outdir / "adc_vs_channel.png",
                      self.cfg.xmin, self.cfg.xmax, xerr=xerr)
 
@@ -214,15 +216,20 @@ class XScan(BaseAnalysis):
 
             return charge, charge_err
 
-        sets = [(adcdir, self.cfg.xerr, *adc_plots(adc_x, err_x, adcdir, self.cfg.xerr))]
+        # (outdir, xerr, channel positions, ...): measured positions for the raw data,
+        # model positions for the corrected data, whose peaks sit there
+        sets = [(adcdir, self.cfg.xerr, ch_to_x, *adc_plots(adc_x, err_x, adcdir, self.cfg.xerr, visible))]
         if adc_corr is not None:
-            sets.append((adccorr, xerr_corr, *adc_plots(adc_corr, err_corr, adccorr, xerr_corr)))
+            vis_corr = [(ch, x) for ch, x in model_x.items() if self.cfg.xmin <= x <= self.cfg.xmax]
+            sets.append((adccorr, xerr_corr, model_x,
+                         *adc_plots(adc_corr, err_corr, adccorr, xerr_corr, vis_corr)))
         else:
             print("No angle correction available (ch_to_x fit failed)")
 
         # Eta-function, for the uncorrected and the corrected data
         title0 = title
-        for outdir, xerr, charge, charge_err in sets:
+        for outdir, xerr, pos, charge, charge_err in sets:
+            vis = [(ch, x) for ch, x in pos.items() if self.cfg.xmin <= x <= self.cfg.xmax]
             frac = {}
             err_frac = {}
             for ch in active:
@@ -235,7 +242,7 @@ class XScan(BaseAnalysis):
 
                 s = q.sum(axis=1, min_count=3)
                 f = q[ch] / s
-                near = (f.index.to_series() - ch_to_x[ch]).abs() < 1.5*self.cfg.pitch
+                near = (f.index.to_series() - pos[ch]).abs() < 1.5*self.cfg.pitch
                 f = f.where(near.to_numpy())
 
                 # Error on f = Q_c / (Q_l + Q_c + Q_r), uncorrelated per-channel errors
@@ -248,7 +255,7 @@ class XScan(BaseAnalysis):
             frac = pd.DataFrame(frac)
             err_frac = pd.DataFrame(err_frac)
             title = title0 + rf", $\eta$ neighbours = $\pm${self.cfg.eta_neighbours}"
-            plot_adc(100 * frac, 100 * err_frac, active, visible, title, outdir / "eta-function.png",
+            plot_adc(100 * frac, 100 * err_frac, active, vis, title, outdir / "eta-function.png",
                           self.cfg.xmin, self.cfg.xmax, ylabel="Charge fraction [%]", xerr=xerr)
 
 
