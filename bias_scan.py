@@ -73,7 +73,7 @@ class BiasScan(BaseAnalysis):
 
                     ax_adc.legend(fontsize="x-small", ncols=3, framealpha=0.6)
                     ax_adc.xaxis.set_minor_locator(tck.AutoMinorLocator())
-                    ax_adc.set_title(f"Ch {ch_id}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
+                    ax_adc.set_title(f"Ch {ch_id}, {voltage:g} V, {self.cfg.fit_model.replace('_', '-')}")
                     ax_adc.set_xlabel("Position in x [mm]")
                     ax_adc.set_ylabel("Mean ADC")
                     fig_adc.savefig(voltdir / f"mean_adc_ch_{ch_id}.png", dpi=150)
@@ -104,7 +104,7 @@ class BiasScan(BaseAnalysis):
                 except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                     print(f"Fit of sigmas failed with {err}")
 
-                ax_zs.set_title(f"Ch {ch}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
+                ax_zs.set_title(f"Ch {ch}, {voltage:g} V, {self.cfg.fit_model.replace('_', '-')}")
                 ax_zs.set_xlabel("Position in z [mm]")
                 ax_zs.set_ylabel("σ in x [µm]")
                 # ax_zs.set_yim(-10, 80)

@@ -143,7 +143,7 @@ class KnifeEdge(BaseAnalysis):
                 adc = rows["value"].to_numpy()
                 err = rows["error"].to_numpy()
 
-                if adc_x.index.size < 5: # the fit has 5 parameters
+                if x.size < (5 if self.cfg.fit_model == "box_gaussian" else 4): # fewer points than fit parameters
                     continue
 
                 ax.errorbar(x, adc, yerr=err, xerr=self.cfg.xerr, fmt="o", ms=3, color=cmap(ci), label=f"z = {z:.2f} mm")
@@ -165,7 +165,7 @@ class KnifeEdge(BaseAnalysis):
                     continue
             ax.legend(fontsize="x-small", ncols=2, framealpha=0.6)
             ax.xaxis.set_minor_locator(tck.AutoMinorLocator())
-            ax.set_title(f"Ch {ch_id}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
+            ax.set_title(f"Ch {ch_id}, {voltage:g} V, {self.cfg.fit_model.replace('_', '-')}")
             ax.set_xlabel("Position in x [mm]")
             ax.set_ylabel("Mean ADC")
             fig.savefig(adcdir / f"adc_ch_{ch_id}.png", dpi=150)
@@ -200,7 +200,7 @@ class KnifeEdge(BaseAnalysis):
                 print(f"Fit of sigmas failed with {err}")
 
             ax_zs.legend(fontsize="small", framealpha=1)
-            ax_zs.set_title(f"Ch {ch}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
+            ax_zs.set_title(f"Ch {ch}, {voltage:g} V, {self.cfg.fit_model.replace('_', '-')}")
             ax_zs.set_xlabel("Position in z [mm]")
             ax_zs.set_ylabel("σ in x [µm]")
             ax_zs.set_ylim(-10, 80)
@@ -208,7 +208,7 @@ class KnifeEdge(BaseAnalysis):
             plt.close(fig_zs)
 
             ax_comp.legend(fontsize="small", framealpha=1)
-            ax_comp.set_title(f"{voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
+            ax_comp.set_title(f"{voltage:g} V, {self.cfg.fit_model.replace('_', '-')}")
             ax_comp.set_xlabel("Position in z [mm]")
             ax_comp.set_ylabel("σ in x [µm]")
             ax_comp.set_ylim(-10, 80)
