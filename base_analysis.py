@@ -105,6 +105,7 @@ class BaseAnalysis(ABC):
         "empty_channels": [0, 63, 64, 127, 128, 191, 192, 256],
         "allowance": 5,
         "pitch": 0.055,
+        "depth": 0.210,
         "ch_to_x": {},          # channel -> x position [mm], saved by the x-scan with update_config()
         "ch_to_x_corr": {},     # same for the angle-corrected (unrotated model) positions, saved by the x-scan
         "eta_neighbours": 3,
@@ -131,7 +132,7 @@ class BaseAnalysis(ABC):
     # Keys that only plot() or the data reading uses. A change recomputes nothing.
     # Every other key changes the results, so a change runs the analysis again.
     PLOT_KEYS: tuple[str, ...] = ("pitch", "style", "plot_run", "chunk_size", "xmin", "xmax",
-                                  "eta_neighbours", "xerr", "zerr", "fit_model")
+                                  "eta_neighbours", "xerr", "zerr", "fit_model", "depth",)
 
     # Names of the extra quantities your process() stores, e.g. QUANTITIES = (FIT_SIGMA,).
     # The common ones (COMMON) are always there.

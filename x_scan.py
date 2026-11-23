@@ -106,7 +106,8 @@ class XScan(BaseAnalysis):
             # Consider adding a more specific check here
             if (abs(popt[0] - y.max()) < y.max()/10):
                 ch_to_x[ch] = popt[1]
-                ch_to_x_err[ch] = sigma   # Gaussian sigma of the peak
+                # ch_to_x_err[ch] = sigma   # Gaussian sigma of the peak
+                ch_to_x_err[ch] = np.sqrt(pcov[1,1])
 
         fig_ch, (ax_ch0, ax_ch1) = plt.subplots(2,1, sharex=True, height_ratios=[3,1])
         channels, x_mean = zip(*ch_to_x.items())
@@ -149,6 +150,15 @@ class XScan(BaseAnalysis):
         ax_ch0.legend(fontsize="small", framealpha=0.8)
         fig_ch.savefig(fitdir / "ch_to_x.png", dpi=150)
         plt.close(fig_ch)
+
+        # Plot the x spread after the length of the sensor
+        fig_spr, ax_spr = plt.subplots(1,1)
+        dxr = np.linspace(0, self.cfg.depth, 100)
+        ax_spr.plot(dxr, 1000 * np.tan(np.deg2rad(phi))*dxr, "o", color="C0", ms=5)
+        ax_spr.fill_between(dxr, 1000 * np.tan(np.deg2rad(phi)))
+        ax_spr.set_xlabel("Depth [mm]")
+        ax_spr.set_ylabel("Spread in x [µm]")
+        fig_spr.savefig(fitdir / "tilt_spread.png", dpi=150)
 
         # Save the mappings in the config, other scans can use them as cfg.ch_to_x and cfg.ch_to_x_corr
         if self.cfg.update_config:
