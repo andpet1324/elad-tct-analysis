@@ -26,6 +26,7 @@ class XScan(BaseAnalysis):
     def plot(self) -> None:
         # Define subdirs
         fitdir = isdir(self.plotdir / "fits")
+        fitcorr = isdir(fitdir / "correction")
         hitsdir = isdir(self.plotdir / "hits")
         adcdir = isdir(self.plotdir / "adc")
         adccorr = isdir(adcdir / "corrected")
@@ -64,6 +65,7 @@ class XScan(BaseAnalysis):
         # Get the channel to position mapping
         # This is a rough estimation. The fits give better positions
         ch_to_x = {ch: hits.index[np.argmax(hits[ch].to_numpy())] for ch in active}
+        fits = {}   # per channel: (x, y, fitted curve, bin width), for the correction overlay
         for ch in active:
             # Fit a box-gaussian or gaussian (cfg.fit_model) and find the mean value. If the fit don't
             # meet conditions, move to next channel.
@@ -87,6 +89,7 @@ class XScan(BaseAnalysis):
                 ax.errorbar(x, y, yerr=np.sqrt(np.maximum(y, 1)), fmt="none", ecolor="C0", capsize=2)
                 ax.plot(xr, curve(xr), color="C1", label="Fit")
                 ax.legend()
+                fits[ch] = (x, y, curve, step)
                 # ax.set_xlim(popt[1] - 5 * popt[2], popt[1] + 5 * popt[2])
                 ax.set_title(f"Ch {ch}, {self.cfg.fit_model.replace('_', '-')} fit, "
                              f"{self.cfg.hit_threshold} ADC hit threshold")
@@ -122,6 +125,7 @@ class XScan(BaseAnalysis):
             ax_ch0.plot(xr, model, color='black',
                        label=f"Ideal positions with no tilt")
             residuals = model - true
+            xr_res = xr   # channel grid of the residuals
             # model is independant on the intercept
             # error is only from slope
             residuals_errors = np.abs(self.cfg.chfocus - xr) * np.sqrt(pcov[0,0])
@@ -142,6 +146,29 @@ class XScan(BaseAnalysis):
         # Save the mappings in the config, other scans can use them as cfg.ch_to_x and cfg.ch_to_x_corr
         if self.cfg.update_config:
             self.update_config(ch_to_x=ch_to_x, **({"ch_to_x_corr": model_x} if model_x else {}))
+
+        # Overlay of the hits per channel before and after the angle correction. Same shift as
+        # the ADC correction: each channel is moved by its residual w.r.t. the unrotated model.
+        if residuals is not None:
+            for ch, (x, y, curve, step) in fits.items():
+                shift = float(np.interp(ch, xr_res, residuals))
+                shift_err = float(np.interp(ch, xr_res, residuals_errors))
+                xe_corr = np.hypot(self.cfg.xerr, shift_err)
+                yerr = np.sqrt(np.maximum(y, 1))
+                xf = np.linspace(x.min(), x.max(), 1000)
+                fig, ax = plt.subplots(1, 1)
+                for xs, c, lab, xe, cv in ((x, "C0", "Original", self.cfg.xerr, curve(xf)),
+                                           (x + shift, "C3", "Corrected", xe_corr, curve(xf - shift))):
+                    ax.stairs(y, np.append(xs - step / 2, xs[-1] + step / 2), color=c, label=lab)
+                    ax.errorbar(xs, y, yerr=yerr, xerr=xe, fmt="none", ecolor=c, capsize=2)
+                    ax.plot(xf + (shift if lab == "Corrected" else 0), cv, color=c, ls="--")
+                ax.legend()
+                ax.set_title(f"Ch {int(ch)}, {self.cfg.fit_model.replace('_', '-')} fit, "
+                             f"{self.cfg.hit_threshold} ADC hit threshold")
+                ax.set_xlabel("Position in x [mm]")
+                ax.set_ylabel("Counts")
+                fig.savefig(fitcorr / f"channel_{int(ch)}_{self.cfg.fit_model}_fit_corrected.png", dpi=150)
+                plt.close(fig)
 
         fig, ax = plt.subplots(1, 1)
         for ch in active:
