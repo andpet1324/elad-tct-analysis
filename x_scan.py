@@ -80,10 +80,18 @@ class XScan(BaseAnalysis):
                         self.cfg.pitch, base=y.min(), bounded=False)
                 fig, ax = plt.subplots(1, 1)
                 xr = np.linspace(x.min(), x.max(), 1000)
-                ax.plot(x, y)
-                ax.plot(xr, curve(xr))
+                # Histogram with bins centred on the scan positions
+                step = np.median(np.diff(x)) if len(x) > 1 else 1.0
+                edges = np.append(x - step / 2, x[-1] + step / 2)
+                ax.stairs(y, edges, color="C0", label="Hits")
+                ax.errorbar(x, y, yerr=np.sqrt(np.maximum(y, 1)), fmt="none", ecolor="C0", capsize=2)
+                ax.plot(xr, curve(xr), color="C1", label="Fit")
+                ax.legend()
                 # ax.set_xlim(popt[1] - 5 * popt[2], popt[1] + 5 * popt[2])
-                ax.set_title(f"Ch {ch}, {self.cfg.fit_model.replace('_', '-')} fit")
+                ax.set_title(f"Ch {ch}, {self.cfg.fit_model.replace('_', '-')} fit, "
+                             f"{self.cfg.hit_threshold} ADC hit threshold")
+                ax.set_xlabel("Position in x [mm]")
+                ax.set_ylabel("Counts")
                 fig.savefig(fitdir / f"channel_{ch}_{self.cfg.fit_model}_fit.png", dpi=150)
                 plt.close(fig)
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
