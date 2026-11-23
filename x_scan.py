@@ -116,7 +116,7 @@ class XScan(BaseAnalysis):
                                 np.shape(x_mean))
         stat_xerr = np.asarray(x_mean_error, dtype=float)
         total_err = np.sqrt(sys_xerr**2 + stat_xerr**2)
-        ax_ch0.errorbar(channels, x_mean, yerr=total_err, fmt='o', ms=5, label="Data")
+        ax_ch0.errorbar(channels, x_mean, yerr=total_err, fmt='o', ms=5, label="Peak positions")
         try:
             popt, pcov = np.polyfit(channels, x_mean, 1, 
                                     w=1/total_err, cov=True)
@@ -159,8 +159,14 @@ class XScan(BaseAnalysis):
             spread = 1000 * np.tan(phi_rad) * dxr
             # Error from the tilt only: d(tan phi) = sec^2(phi) dphi
             spread_err = 1000 * dxr * phierr_rad / np.cos(phi_rad) ** 2
-            ax_spr.plot(dxr, spread, color="C0")
-            ax_spr.fill_between(dxr, spread - spread_err, spread + spread_err, color="C0", alpha=0.3, lw=0)
+            ax_spr.plot(dxr, spread, color="C0",
+                        label=rf"$\tan(\phi)\cdot d$, $\phi$ = {phi:.3f}$\pm${phierr:.3f} degrees")
+            ax_spr.fill_between(dxr, spread - spread_err, spread + spread_err, color="C0", alpha=0.3, lw=0,
+                                label=r"$\pm 1\sigma_\phi$")
+            ax_spr.plot(dxr[-1], spread[-1], "o", color="C0", ms=5,
+                        label=rf"$\Delta x$({1000 * self.cfg.depth:.0f} µm) = {spread[-1]:.2f}$\pm${spread_err[-1]:.2f} µm")
+            ax_spr.legend(fontsize="small", framealpha=0.8)
+            ax_spr.set_title("Spread in x from the sensor tilt")
             ax_spr.set_xlabel("Depth [mm]")
             ax_spr.set_ylabel("Spread in x [µm]")
             fig_spr.savefig(fitdir / "tilt_spread.png", dpi=150)
