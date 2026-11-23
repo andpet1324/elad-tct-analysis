@@ -1,0 +1,57 @@
+# Example config, every key is optional and shown here with its default.
+# Unknown keys are an error.
+
+# Cleaning steps in order, see cleaning.py
+pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"]
+
+empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
+allowance = 5
+
+# Region of interest
+chmin = 86
+chmax = 105
+
+# Channel used to find the focus
+chfocus = 96
+
+# Angle correction
+
+# |adc_clean| above this is a hit
+hit_threshold = 20
+
+# Delay search
+time_threshold = 18
+default_delay = 50
+default_time_window = 10.0
+# Just uses default values
+use_default_delay = true
+
+# Make a plot after each cleaning step for this run
+plot_run = 100
+
+chunk_size = 100
+
+# Only use scan positions inside this range, leave out for all
+# zmin = 31.0
+# zmax = 32.5
+xmin = 7.9
+xmax = 9.1
+
+pitch = 0.055 # mm
+
+eta_neighbours = 1
+
+update_config = true
+
+style = "/home/teleuser/ELAD/tct/elad-tct-analysis/config/paper-style.mplstyle"
+
+# Systematic errors on the Standa stages
+xerr = 0.00125 # 1.25 micron
+zerr = 0.00125 # 1.25 micron
+
+# Peak shape fitted in x for the sigma: "box_gaussian" or "gaussian"
+fit_model = "gaussian"
+
+# Channel to x position [mm]. Written by x-scan.py, other scans can use it as cfg.ch_to_x
+ch_to_x = {87 = 8.01270228053857, 88 = 8.067589130310743, 89 = 8.122475980082918, 90 = 8.177362829855092, 91 = 8.232249679627264, 92 = 8.287136529399438, 93 = 8.342023379171613, 94 = 8.396910228943785, 95 = 8.451797078715959, 96 = 8.506683928488133, 97 = 8.561570778260307, 98 = 8.616457628032482, 99 = 8.671344477804656, 100 = 8.72623132757683, 101 = 8.781118177349004, 102 = 8.836005027121178, 103 = 8.89089187689335, 104 = 8.945778726665525}
+ch_to_x_corr = {87 = 8.011683928488132, 88 = 8.066683928488132, 89 = 8.121683928488133, 90 = 8.176683928488133, 91 = 8.231683928488133, 92 = 8.286683928488133, 93 = 8.341683928488134, 94 = 8.396683928488134, 95 = 8.451683928488134, 96 = 8.506683928488133, 97 = 8.561683928488133, 98 = 8.616683928488133, 99 = 8.671683928488132, 100 = 8.726683928488132, 101 = 8.781683928488132, 102 = 8.836683928488133, 103 = 8.891683928488133, 104 = 8.946683928488133}
