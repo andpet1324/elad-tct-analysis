@@ -154,20 +154,20 @@ class XScan(BaseAnalysis):
         # Plot the x spread after the length of the sensor
         if residuals is not None:
             fig_spr, ax_spr = plt.subplots(1,1)
-            dxr = np.linspace(0, self.cfg.depth, 100)
+            dxr = np.linspace(0, 1000 * self.cfg.depth, 100)
             phi_rad, phierr_rad = np.deg2rad(phi), np.deg2rad(phierr)
-            spread = 1000 * np.tan(phi_rad) * dxr
+            spread = np.tan(phi_rad) * dxr
             # Error from the tilt only: d(tan phi) = sec^2(phi) dphi
-            spread_err = 1000 * dxr * phierr_rad / np.cos(phi_rad) ** 2
+            spread_err = dxr * phierr_rad / np.cos(phi_rad) ** 2
             ax_spr.plot(dxr, spread, color="C0",
-                        label=rf"$\tan(\phi)\cdot d$, $\phi$ = {phi:.3f}$\pm${phierr:.3f} degrees")
+                        label=rf"$\tan(\phi)\cdot d$")
             ax_spr.fill_between(dxr, spread - spread_err, spread + spread_err, color="C0", alpha=0.3, lw=0,
                                 label=r"$\pm 1\sigma_\phi$")
             ax_spr.plot(dxr[-1], spread[-1], "o", color="C0", ms=5,
                         label=rf"$\Delta x$({1000 * self.cfg.depth:.0f} µm) = {spread[-1]:.2f}$\pm${spread_err[-1]:.2f} µm")
             ax_spr.legend(fontsize="small", framealpha=0.8)
-            ax_spr.set_title("Spread in x from the sensor tilt")
-            ax_spr.set_xlabel("Depth [mm]")
+            ax_spr.set_title(rf"$\phi$ = {phi:.3f}$\pm${phierr:.3f} degrees")
+            ax_spr.set_xlabel("Depth [µm]")
             ax_spr.set_ylabel("Spread in x [µm]")
             fig_spr.savefig(fitdir / "tilt_spread.png", dpi=150)
             plt.close(fig_spr)
