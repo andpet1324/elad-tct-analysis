@@ -145,7 +145,7 @@ class XScan(BaseAnalysis):
 
         ax_ch1.set_xlabel("Channel")
         ax_ch1.set_ylabel("Residual [µm]")
-        ax_ch0.set_ylabel(r"$x_{\mathrm{mean}}$ [mm]")
+        ax_ch0.set_ylabel("Position in x [mm]")
         ax_ch0.set_title(title)
         ax_ch0.legend(fontsize="small", framealpha=0.8)
         fig_ch.savefig(fitdir / "ch_to_x.png", dpi=150)
