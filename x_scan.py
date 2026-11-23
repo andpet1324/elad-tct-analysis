@@ -158,10 +158,11 @@ class XScan(BaseAnalysis):
                 xf = np.linspace(x.min(), x.max(), 1000)
                 fig, ax = plt.subplots(1, 1)
                 for xs, c, lab, xe, cv in ((x, "C0", "Original", self.cfg.xerr, curve(xf)),
-                                           (x + shift, "C3", "Corrected", xe_corr, curve(xf - shift))):
+                                           (x + shift, "C2", "Corrected", xe_corr, curve(xf - shift))):
                     ax.stairs(y, np.append(xs - step / 2, xs[-1] + step / 2), color=c, label=lab)
                     ax.errorbar(xs, y, yerr=yerr, xerr=xe, fmt="none", ecolor=c, capsize=2)
                     ax.plot(xf + (shift if lab == "Corrected" else 0), cv, color=c, ls="--")
+                    ax.set_xlim(xf[np.argmax(y)] - 0.1, xf[np.argmax(y)] + 0.1)
                 ax.legend()
                 ax.set_title(f"Ch {int(ch)}, {self.cfg.fit_model.replace('_', '-')} fit, "
                              f"{self.cfg.hit_threshold} ADC hit threshold")
