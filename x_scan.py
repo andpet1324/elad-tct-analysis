@@ -116,7 +116,7 @@ class XScan(BaseAnalysis):
                                 np.shape(x_mean))
         stat_xerr = np.asarray(x_mean_error, dtype=float)
         total_err = np.sqrt(sys_xerr**2 + stat_xerr**2)
-        ax_ch0.errorbar(channels, x_mean, yerr=total_err, fmt='o', ms=5, label="Peak positions")
+        ax_ch0.errorbar(channels, x_mean, yerr=total_err, fmt='o', ms=5, label="Gaussian mean")
         try:
             popt, pcov = np.polyfit(channels, x_mean, 1, 
                                     w=1/total_err, cov=True)
