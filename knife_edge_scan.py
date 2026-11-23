@@ -195,7 +195,7 @@ class KnifeEdge(BaseAnalysis):
                     ax_zs.plot(xz, 1000 * beam_width(xz, *popt_b), color=color,
                             label=rf"Beam fit: $\sigma_0 = {1000 * w0:.2f} \pm {1000 * e_w0:.2f}$ µm, $z_0 = {z0:.3f}$ mm, $z_R = {zr:.2f} \pm {e_zr:.2f}$ mm")
                     ax_comp.plot(xz, 1000 * beam_width(xz, *popt_b), color=color,
-                            label=rf"{self.cfg.fit_model.replace('_', '-')}, Ch {ch}: $\sigma_0 = {1000 * w0:.2f}$ µm, $z_R = {zr:.2f}$ mm")
+                            label=rf"{self.cfg.fit_model.replace('_', '-').capitalize()}, Ch {ch}: $\sigma_0 = {1000 * w0:.2f}$ µm, $z_R = {zr:.2f}$ mm")
             except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
                 print(f"Fit of sigmas failed with {err}")
 

@@ -120,7 +120,7 @@ class XScan(BaseAnalysis):
             model = np.polyval([self.cfg.pitch, model_intercept], xr)
             model_x = {ch: self.cfg.pitch * ch + model_intercept for ch in ch_to_x}
             ax_ch0.plot(xr, model, color='black',
-                       label=f"ideal positions with no tilt")
+                       label=f"Ideal positions with no tilt")
             residuals = model - true
             # model is independant on the intercept
             # error is only from slope
