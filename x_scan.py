@@ -65,7 +65,8 @@ class XScan(BaseAnalysis):
         # Get the channel to position mapping
         # This is a rough estimation. The fits give better positions
         ch_to_x = {ch: hits.index[np.argmax(hits[ch].to_numpy())] for ch in active}
-        ch_to_x_err = {ch: hits.index[np.argmax(hits[ch].to_numpy())] for ch in active}
+        # Error on the position: Gaussian sigma of the peak, or for unfitted channels the scan step / sqrt(12)
+        ch_to_x_err = {ch: np.median(np.diff(hits.index.to_numpy(dtype=float))) / np.sqrt(12) for ch in active}
         fits = {}   # per channel: (x, y, fitted curve, bin width), for the correction overlay
         for ch in active:
             # Fit a box-gaussian or gaussian (cfg.fit_model) and find the mean value. If the fit don't
@@ -78,7 +79,7 @@ class XScan(BaseAnalysis):
                     warnings.simplefilter("error", RuntimeWarning)
                     warnings.simplefilter("error", OptimizeWarning)
                     # Counting error sqrt(N), at least 1 so empty positions do not get zero error
-                    curve, popt, pcov, _, _ = fit_peak(
+                    curve, popt, pcov, sigma, _ = fit_peak(
                         self.cfg.fit_model, x, y, np.sqrt(np.maximum(y, 1)), self.cfg.xerr,
                         self.cfg.pitch, base=y.min(), bounded=False)
                 fig, ax = plt.subplots(1, 1)
@@ -105,15 +106,14 @@ class XScan(BaseAnalysis):
             # Consider adding a more specific check here
             if (abs(popt[0] - y.max()) < y.max()/10):
                 ch_to_x[ch] = popt[1]
-                ch_to_x_err[ch] = popt[2]
+                ch_to_x_err[ch] = sigma   # Gaussian sigma of the peak
 
         fig_ch, (ax_ch0, ax_ch1) = plt.subplots(2,1, sharex=True, height_ratios=[3,1])
         channels, x_mean = zip(*ch_to_x.items())
         _, x_mean_error = zip(*ch_to_x_err.items())
         sys_xerr = np.broadcast_to(np.asarray(self.cfg.xerr, dtype=float), 
                                 np.shape(x_mean))
-        stat_xerr = np.broadcast_to(np.asarray(self.cfg.xerr, dtype=float), 
-                                np.shape(x_mean_error))
+        stat_xerr = np.asarray(x_mean_error, dtype=float)
         total_err = np.sqrt(sys_xerr**2 + stat_xerr**2)
         ax_ch0.errorbar(channels, x_mean, yerr=total_err, fmt='o', ms=5, label="Data")
         try:
@@ -121,7 +121,7 @@ class XScan(BaseAnalysis):
                                     w=1/total_err, cov=True)
             xr = np.linspace(min(channels), max(channels), 100)
             phi = np.rad2deg(np.arccos(popt[0]/self.cfg.pitch))
-            phierr = np.rad2deg(np.sqrt(pcov[0,0])/(np.sqrt(1-(popt[0]/self.cfg.pitch)**2)))
+            phierr = np.rad2deg(np.sqrt(pcov[0,0])/(self.cfg.pitch*np.sqrt(1-(popt[0]/self.cfg.pitch)**2)))
             true = np.polyval(popt, xr)
             ax_ch0.plot(xr, true,
                        label=rf"$\phi$ = arccos(slope/pitch) = arccos({popt[0]:.5f}/{self.cfg.pitch}) = {phi:.3f}$\pm${phierr:.5f} degrees")
@@ -131,12 +131,12 @@ class XScan(BaseAnalysis):
             model_x = {ch: self.cfg.pitch * ch + model_intercept for ch in ch_to_x}
             ax_ch0.plot(xr, model, color='black',
                        label=f"Ideal positions with no tilt")
-            residuals = 1000 * (model - true)
+            residuals = model - true   # mm
             xr_res = xr
             # model is independant on the intercept
             # error is only from slope
-            residuals_errors = 1000 * np.abs(self.cfg.chfocus - xr) * np.sqrt(pcov[0,0])
-            ax_ch1.errorbar(xr, residuals, yerr=residuals_errors, fmt="o", ms=5)
+            residuals_errors = np.abs(self.cfg.chfocus - xr) * np.sqrt(pcov[0,0])
+            ax_ch1.errorbar(xr, 1000 * residuals, yerr=1000 * residuals_errors, fmt="o", ms=5)
             for ch in ch_to_x.keys():
                 ch_to_x[ch] = np.polyval(popt, ch)
         except Exception as err:
