@@ -152,13 +152,19 @@ class XScan(BaseAnalysis):
         plt.close(fig_ch)
 
         # Plot the x spread after the length of the sensor
-        fig_spr, ax_spr = plt.subplots(1,1)
-        dxr = np.linspace(0, self.cfg.depth, 100)
-        ax_spr.plot(dxr, 1000 * np.tan(np.deg2rad(phi))*dxr, "o", color="C0", ms=5)
-        ax_spr.fill_between(dxr, 1000 * np.tan(np.deg2rad(phi)))
-        ax_spr.set_xlabel("Depth [mm]")
-        ax_spr.set_ylabel("Spread in x [µm]")
-        fig_spr.savefig(fitdir / "tilt_spread.png", dpi=150)
+        if residuals is not None:
+            fig_spr, ax_spr = plt.subplots(1,1)
+            dxr = np.linspace(0, self.cfg.depth, 100)
+            phi_rad, phierr_rad = np.deg2rad(phi), np.deg2rad(phierr)
+            spread = 1000 * np.tan(phi_rad) * dxr
+            # Error from the tilt only: d(tan phi) = sec^2(phi) dphi
+            spread_err = 1000 * dxr * phierr_rad / np.cos(phi_rad) ** 2
+            ax_spr.plot(dxr, spread, color="C0")
+            ax_spr.fill_between(dxr, spread - spread_err, spread + spread_err, color="C0", alpha=0.3, lw=0)
+            ax_spr.set_xlabel("Depth [mm]")
+            ax_spr.set_ylabel("Spread in x [µm]")
+            fig_spr.savefig(fitdir / "tilt_spread.png", dpi=150)
+            plt.close(fig_spr)
 
         # Save the mappings in the config, other scans can use them as cfg.ch_to_x and cfg.ch_to_x_corr
         if self.cfg.update_config:
