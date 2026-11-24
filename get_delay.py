@@ -4,7 +4,6 @@ import numpy as np
 from scipy.optimize import curve_fit
 import warnings
 from scipy.optimize import OptimizeWarning
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 
@@ -36,6 +35,8 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path, TIME_THRESHOLD: float) ->
             popt, pcov = curve_fit(gaussian, centers, counts_neg, p0=p0)
             if abs(popt[0]) < counts_neg.max() / 2:
                 raise ValueError("Fit amplitude too low!")
+            if abs(popt[0]) > counts_neg.max() * 10:
+                raise ValueError("Fit amplitude too high!")
             elif abs(popt[1] - t[argmax]) > 10:
                 raise ValueError("Fit mean not centered!")
             if abs(popt[2] < 5):
@@ -43,7 +44,7 @@ def get_delay(df: pd.DataFrame, plotdir: pathlib.Path, TIME_THRESHOLD: float) ->
             if abs(popt[2] > 15):
                 popt[2] = 15.0
     except (RuntimeError, RuntimeWarning, OptimizeWarning, ValueError) as err:
-        tqdm.write(f"Fit failed with {err}")
+        print(f"Fit failed with {err}")
         return (None, None)
 
     fig, ax = plt.subplots(1,1)
