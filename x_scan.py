@@ -121,8 +121,15 @@ class XScan(BaseAnalysis):
             popt, pcov = np.polyfit(channels, x_mean, 1, 
                                     w=1/total_err, cov=True)
             xr = np.linspace(min(channels), max(channels), 100)
-            phi = np.rad2deg(np.arccos(popt[0]/self.cfg.pitch))
-            phierr = np.rad2deg(np.sqrt(pcov[0,0])/(self.cfg.pitch*np.sqrt(1-(popt[0]/self.cfg.pitch)**2)))
+            ratio, ratio_err = popt[0] / self.cfg.pitch, np.sqrt(pcov[0,0]) / self.cfg.pitch
+            if ratio < 1:
+                phi = np.rad2deg(np.arccos(ratio))
+                phierr = np.rad2deg(ratio_err / np.sqrt(1 - ratio**2))
+            else:
+                # Slope >= pitch has no real angle: take phi = 0 and use the angle at one sigma
+                # below the slope as the error (an upper limit), since the propagation diverges at 1
+                phi = 0.0
+                phierr = np.rad2deg(np.arccos(min(ratio - ratio_err, 1)))
             true = np.polyval(popt, xr)
             ax_ch0.plot(xr, true,
                        label=rf"$\phi$ = arccos(slope/pitch) = arccos({popt[0]:.5f}/{self.cfg.pitch}) = {phi:.3f}$\pm${phierr:.5f} degrees")
