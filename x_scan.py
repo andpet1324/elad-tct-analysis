@@ -13,7 +13,7 @@ import warnings
 from scipy.optimize import OptimizeWarning
 
 from base_analysis import BaseAnalysis, isdir, ADC_CLEAN, CHANNEL_HITS
-from fits import fit_peak
+from fits import fit_peak, spike_mask
 from plot_helpers import clean_adc, plot_adc
 
 
@@ -74,6 +74,8 @@ class XScan(BaseAnalysis):
             s = hits[ch].sort_index()
             x = s.index.to_numpy(dtype=float)
             y = s.to_numpy(dtype=float)
+            keep = spike_mask(x, y)
+            x, y = x[keep], y[keep]
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", RuntimeWarning)
@@ -89,7 +91,7 @@ class XScan(BaseAnalysis):
                 edges = np.append(x - step / 2, x[-1] + step / 2)
                 ax.stairs(y, edges, color="C0", label="Hits")
                 ax.errorbar(x, y, yerr=np.sqrt(np.maximum(y, 1)), fmt="none", ecolor="C0", capsize=2)
-                ax.plot(xr, curve(xr), color="C1", label="Fit")
+                ax.plot(xr, curve(xr), color="C1", label=f"Fit: popt = [{popt[0]:.3f}, {popt[1]:.3f}, {popt[2]:.3f}, {popt[3]:.3f}]")
                 ax.legend()
                 fits[ch] = (x, y, curve, step)
                 # ax.set_xlim(popt[1] - 5 * popt[2], popt[1] + 5 * popt[2])

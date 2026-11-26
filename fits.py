@@ -51,10 +51,9 @@ def fit_peak(model, x, y, yerr, xerr, pitch, base=0.0, bounded=True, maxfev=1000
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     yerr = np.broadcast_to(np.asarray(yerr, dtype=float), y.shape)
-    if model == "box_gaussian":
-        # Remove spikes before the start values are taken, with the same points removed from yerr
-        keep = spike_mask(x, y)
-        x, y, yerr = x[keep], y[keep], yerr[keep]
+    # if model == "box_gaussian":
+    #     keep = spike_mask(x, y)
+    #     x, y, yerr = x[keep], y[keep], yerr[keep]
     argmax = np.argmax(y)
     peak = y[argmax]
     above = x[y > base + (peak - base) / 2]
@@ -125,8 +124,8 @@ def polyfit_xerr(x, y, yerr, xerr, deg=2, n_iter=2):
 
 
 def spike_mask(x: np.ndarray, y: np.ndarray):
-    """True for the points to keep."""
+    """Removes spikes larger than half of the max-min difference"""
     diff = y.max() - y.min()
-    dydx = np.gradient(y, x)
+    step = np.abs(np.diff(y, prepend=y[0]))
 
-    return np.abs(dydx) <= diff / 2
+    return np.abs(step) < diff / 2
