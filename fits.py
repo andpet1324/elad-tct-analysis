@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from scipy.optimize import curve_fit
 from scipy.special import erf
 
@@ -55,6 +56,8 @@ def fit_peak(model, x, y, yerr, xerr, pitch, base=0.0, bounded=True, maxfev=1000
     w = above.max() - above.min() if above.size > 1 else pitch / 2
     step = np.diff(x).min() if x.size > 1 else pitch / 10
     if model == "box_gaussian":
+        # Remove spikes larger than the max - baseline difference
+        x, y = remove_spikes(x, y)
         f = box_gaussian
         p0 = [peak - base, x[argmax], w, max(w / 10, step), base]
         lo = [0, x.min(), 0, 1e-4, -np.inf]
@@ -116,3 +119,11 @@ def polyfit_xerr(x, y, yerr, xerr, deg=2, n_iter=2):
         coefs, cov = np.polyfit(x, y, deg, w=1 / sigma, cov="unscaled")
         sigma = np.sqrt(yerr**2 + (np.polyval(np.polyder(coefs), x) * xerr) ** 2)
     return coefs, cov
+
+
+def remove_spikes(x: np.ndarray, y: np.ndarray):
+    diff = y.max() - y.min()
+    dydx = np.gradient(y, x)
+
+    keep = np.abs(dydx) <= diff / 2
+    return x[keep], y[keep]

@@ -1,0 +1,57 @@
+# Example config, every key is optional and shown here with its default.
+# Unknown keys are an error.
+
+# Cleaning steps in order, see cleaning.py
+pipeline = ["subtract_pedestals", "remove_empty", "common_mode", "time_cut", "channel_cut"]
+
+empty_channels = [0, 63, 64, 127, 128, 191, 192, 256]
+allowance = 5
+
+# Region of interest
+chmin = 150
+chmax = 190
+
+# Channel used to find the focus
+chfocus = 155
+
+# Angle correction
+
+# |adc_clean| above this is a hit
+hit_threshold = 60
+
+# Delay search
+time_threshold = 60
+
+default_delay = 50
+default_time_window = 10.0
+# Just uses default values
+use_default_delay = true
+
+# Make a plot after each cleaning step for this run
+plot_run = 100
+
+chunk_size = 100
+
+xmin = 18.2
+xmax = 19.0
+
+# Pitch is positive for a backside-scan
+pitch = 0.055 # mm
+depth = 0.210 # mm
+
+eta_neighbours = 1
+
+update_config = true
+
+style = "/home/teleuser/ELAD/tct/elad-tct-analysis/config/paper-style.mplstyle"
+
+# Systematic errors on the Standa stages
+xerr = 0.00125 # 1.25 micron
+zerr = 0.00125 # 1.25 micron
+
+# Peak shape fitted in x for the sigma: "box_gaussian" or "gaussian"
+fit_model = "box_gaussian"
+
+# Channel to x position [mm]. Written by x-scan.py, other scans can use it as cfg.ch_to_x
+ch_to_x = {155 = 18.308271754871726, 156 = 18.36076282154431, 157 = 18.413253888216893, 158 = 18.46574495488948, 159 = 18.518236021562064, 160 = 18.570727088234648, 161 = 18.623218154907235, 162 = 18.67570922157982, 163 = 18.728200288252403, 164 = 18.78069135492499, 165 = 18.833182421597574}
+ch_to_x_corr = {155 = 18.308271754871726, 156 = 18.363271754871725, 157 = 18.418271754871725, 158 = 18.473271754871725, 159 = 18.528271754871724, 160 = 18.583271754871724, 161 = 18.638271754871724, 162 = 18.693271754871724, 163 = 18.748271754871723, 164 = 18.803271754871723, 165 = 18.858271754871723}

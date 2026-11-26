@@ -16,9 +16,9 @@ from fits import fit_peak, fit_beam, beam_width
 
 
 class FocusScan(BaseAnalysis):
-    DEFAULTS = {**BaseAnalysis.DEFAULTS, "active": [86, 87]}
+    DEFAULTS = {**BaseAnalysis.DEFAULTS,}
     # plot() writes ch_to_x to the config, so a change of it must not count as a new setting here
-    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x", "active",)
+    PLOT_KEYS = BaseAnalysis.PLOT_KEYS + ("ch_to_x",)
 
 
     # Contains the data per position basically
@@ -29,15 +29,16 @@ class FocusScan(BaseAnalysis):
 
         """" --------------- ADC PLOTS ---------------"""
         d = self.get(ADC_CLEAN)
-        active = [ch for ch in range(self.cfg.chmin, self.cfg.chmax+1)]
+        channels = [ch for ch in range(self.cfg.chmin, self.cfg.chmax+1)]
         ch_to_x = self.cfg.ch_to_x
         # Average over the runs for each channel
         d = d.astype({"x": float, "channel": float, "value": float, "error": float, "z": float, "voltage": float})
-        d = d[d["channel"].isin(active)]
+        d = d[d["channel"].isin(channels)]
+        d = d[(d["z"] > self.cfg.zmin) & (d["z"] < self.cfg.zmax)]
         voltage = d["voltage"].iloc[0]
         chs = d.groupby("channel")
         cmap = plt.get_cmap("turbo", len(d["z"].unique()))
-        sigmas = {ch: {} for ch in active}
+        sigmas = {ch: {} for ch in channels}
         zs = {}
         for ch_id, ch_df in chs:
             fig, ax = plt.subplots(1,1)
@@ -57,7 +58,7 @@ class FocusScan(BaseAnalysis):
                         warnings.simplefilter("error", OptimizeWarning)
                         curve, popt, pcov, sig, sig_e = fit_peak(
                             self.cfg.fit_model, x, abs_adc, np.abs(err), self.cfg.xerr, self.cfg.pitch)
-                        if True:
+                        if False:
                             # Only fit on select data
                             fit_mean = popt[1]
                             fit_mask = np.abs(fit_mean - x) > sig/3.0
@@ -85,9 +86,9 @@ class FocusScan(BaseAnalysis):
             fig.savefig(adcdir / f"adc_ch_{ch_id}.png", dpi=150)
             plt.close(fig)
 
-        ch_colors = {ch: plt.get_cmap("tab10")(i) for i, ch in enumerate(active)}
+        ch_colors = {ch: plt.get_cmap("tab10")(i) for i, ch in enumerate(channels)}
         zs = {}
-        for ch in active:
+        for ch in channels:
             fig_foc, ax_foc = plt.subplots(1,1)
             color = ch_colors[ch]
             ch_zs = sorted(sigmas[ch])
@@ -96,6 +97,7 @@ class FocusScan(BaseAnalysis):
             if sig.size == 0:
                 print(f"No data in ch {ch}")
                 continue
+            print(sig)
             ax_foc.errorbar(ch_zs, 1000 * sig, yerr=1000 * sig_err, xerr=self.cfg.zerr, fmt="o", color=color)
             try:
                 with warnings.catch_warnings():
@@ -116,7 +118,7 @@ class FocusScan(BaseAnalysis):
             ax_foc.set_title(f"Ch {ch}, {voltage:g} V, {self.cfg.fit_model.replace("_", "-")}")
             ax_foc.set_xlabel("Position in z [mm]")
             ax_foc.set_ylabel("σ in x [µm]")
-            ax_foc.set_ylim(-10, 80)
+            # ax_foc.set_ylim(-10, 80)
             fig_foc.savefig(focusdir / f"focus_scan_ch_{ch}.png", dpi=150)
             plt.close(fig_foc)
 
