@@ -50,14 +50,17 @@ def fit_peak(model, x, y, yerr, xerr, pitch, base=0.0, bounded=True, maxfev=1000
         raise ValueError(f"Unknown fit_model {model!r}, choose from {FIT_MODELS}")
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
+    yerr = np.broadcast_to(np.asarray(yerr, dtype=float), y.shape)
+    if model == "box_gaussian":
+        # Remove spikes before the start values are taken, with the same points removed from yerr
+        keep = spike_mask(x, y)
+        x, y, yerr = x[keep], y[keep], yerr[keep]
     argmax = np.argmax(y)
     peak = y[argmax]
     above = x[y > base + (peak - base) / 2]
     w = above.max() - above.min() if above.size > 1 else pitch / 2
     step = np.diff(x).min() if x.size > 1 else pitch / 10
     if model == "box_gaussian":
-        # Remove spikes larger than the max - baseline difference
-        x, y = remove_spikes(x, y)
         f = box_gaussian
         p0 = [peak - base, x[argmax], w, max(w / 10, step), base]
         lo = [0, x.min(), 0, 1e-4, -np.inf]
@@ -121,9 +124,9 @@ def polyfit_xerr(x, y, yerr, xerr, deg=2, n_iter=2):
     return coefs, cov
 
 
-def remove_spikes(x: np.ndarray, y: np.ndarray):
+def spike_mask(x: np.ndarray, y: np.ndarray):
+    """True for the points to keep."""
     diff = y.max() - y.min()
     dydx = np.gradient(y, x)
 
-    keep = np.abs(dydx) <= diff / 2
-    return x[keep], y[keep]
+    return np.abs(dydx) <= diff / 2
