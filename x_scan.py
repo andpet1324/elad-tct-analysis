@@ -124,17 +124,17 @@ class XScan(BaseAnalysis):
                                     w=1/total_err, cov=True)
             xr = np.linspace(min(channels), max(channels), 100)
             ratio, ratio_err = popt[0] / self.cfg.pitch, np.sqrt(pcov[0,0]) / self.cfg.pitch
-            if ratio < 1:
-                phi = np.rad2deg(np.arccos(ratio))
-                phierr = np.rad2deg(ratio_err / np.sqrt(1 - ratio**2))
-            else:
-                # Slope >= pitch has no real angle: take phi = 0 and use the angle at one sigma
-                # below the slope as the error (an upper limit), since the propagation diverges at 1
-                phi = 0.0
-                phierr = np.rad2deg(np.arccos(min(ratio - ratio_err, 1)))
+            # Signed tilt: arccos(slope/pitch) > 0 below the pitch, -arccos(pitch/slope) < 0 above it
+            def signed_angle(r):
+                return np.rad2deg(np.arccos(r) if r <= 1 else -np.arccos(1 / r))
+            phi = signed_angle(ratio)
+            # Half the angle change over +-1 sigma of the slope, the derivative diverges at ratio = 1
+            phierr = (signed_angle(ratio - ratio_err) - signed_angle(ratio + ratio_err)) / 2
             true = np.polyval(popt, xr)
+            formula = (f"arccos(slope/pitch) = arccos({popt[0]:.5f}/{self.cfg.pitch})" if ratio <= 1 else
+                       f"-arccos(pitch/slope) = -arccos({self.cfg.pitch}/{popt[0]:.5f})")
             ax_ch0.plot(xr, true,
-                       label=rf"$\phi$ = arccos(slope/pitch) = arccos({popt[0]:.5f}/{self.cfg.pitch}) = {phi:.3f}$\pm${phierr:.5f} degrees")
+                       label=rf"$\phi$ = {formula} = {phi:.3f}$\pm${phierr:.5f} degrees")
             # Get the model for the non-rotated sensor
             model_intercept = np.polyval(popt, self.cfg.chfocus) - self.cfg.pitch * self.cfg.chfocus
             model = np.polyval([self.cfg.pitch, model_intercept], xr)
